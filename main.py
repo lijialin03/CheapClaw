@@ -2,8 +2,7 @@
 import argparse
 
 from llm.qwen import QwenClient
-from bot.memory import Memory
-from bot.assembler import Assembler
+from bot import Agent, Assembler, Memory
 from ui import RichCLI
 
 
@@ -32,9 +31,12 @@ def main():
         memory=memory
     )
 
-    # 4. 根据参数选择 UI
+    # 4. 编排层
+    agent = Agent(client=client, assembler=assembler, memory=memory)
+
+    # 5. 根据参数选择 UI
     if args.ui == "rich":
-        cli = RichCLI(client, assembler, memory)
+        cli = RichCLI(agent)
         cli.run()
 
 if __name__ == "__main__":

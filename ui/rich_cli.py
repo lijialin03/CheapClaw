@@ -11,17 +11,13 @@ from rich.syntax import Syntax
 from rich.text import Text
 from rich import box
 
-from llm.qwen import QwenClient
-from bot.assembler import Assembler
-from bot.memory import Memory
-from utils.processor import markdown_to_plain, remove_line_numbers_keep_markdown
+from bot import Agent
+from utils.processor import remove_line_numbers_keep_markdown
 
 
 class RichCLI:
-    def __init__(self, client: QwenClient, assembler: Assembler, memory: Memory):
-        self.client = client
-        self.assembler = assembler
-        self.memory = memory
+    def __init__(self, agent: Agent):
+        self.agent = agent
         self.console = Console(force_terminal=True)  # 强制 ANSI 转义，提高兼容性
         self._setup_readline()
 
@@ -72,7 +68,9 @@ class RichCLI:
                 self.console.print(plain)
 
     def run(self):
-        self.client.logger.info("Rich CLI 增强版启动")
+        logger = getattr(self.agent, "logger", None)
+        if logger:
+            logger.info("Rich CLI 增强版启动")
         self.console.print(Panel.fit("🤖 通义千问对话助手", style="bold cyan", border_style="cyan"))
         self.console.print("[dim]↑↓ 历史记录 | /clear 清屏 | /compress 压缩记忆 | /exit 退出[/dim]")
 
@@ -94,9 +92,6 @@ class RichCLI:
                 self._compress_memory()
                 continue
 
-            # 组装 prompt（包含系统设定、历史记忆、当前消息）
-            prompt = self.assembler.assemble(user_input)
-
             # 显示用户消息（可选项，用简单方式显示）
             self.console.print(f"[bold green]你:[/bold green] {user_input}")
 
@@ -104,7 +99,7 @@ class RichCLI:
             status = self.console.status("[bold cyan]AI 正在思考...[/bold cyan]")
             status.start()
             try:
-                assistant_reply = self.client.send_text(prompt)
+                assistant_reply = self.agent.run_turn(user_input)
             except Exception as e:
                 self.console.print(f"[red]❌ 出错了: {e}[/red]")
                 status.stop()
@@ -117,35 +112,24 @@ class RichCLI:
             # 添加空行分隔
             self.console.print()
 
-            # 存储纯文本记忆（用于上下文）
-            clean_text = markdown_to_plain(assistant_reply)
-            self.assembler.update_memory(user_input, clean_text)
-
         # 保存历史
         readline.write_history_file(".cli_history")
-        self.client.close()
+        self.agent.close()
 
     def _compress_memory(self):
         """手动触发记忆压缩：将工作记忆中最旧的消息对压缩为 LLM 摘要。"""
-        # 先检查 buffer 是否有足够消息可压缩
-        msg_count = len(self.memory.buffer.messages)
-        if msg_count < 4:
-            self.console.print("[yellow]消息不足（至少需要 2 轮对话），暂无需压缩[/yellow]")
-            return
-
-        self.console.print("[cyan]正在压缩历史记忆（调用 LLM 生成摘要）...[/cyan]")
         status = self.console.status("[bold cyan]压缩中...[/bold cyan]")
         status.start()
         try:
-            self.memory.compress_with_summary()
-            self.memory.save()
+            result = self.agent.compress_memory()
             status.stop()
-            summaries = len(self.memory.compressor.summaries)
-            remaining = len(self.memory.buffer.messages)
+            if result["status"] == "skipped":
+                self.console.print(f"[yellow]{result['message']}[/yellow]")
+                return
             self.console.print(
                 f"[green]✓ 压缩完成。"
-                f"已保留 {summaries} 条摘要，"
-                f"工作记忆剩余 {remaining} 条消息。[/green]"
+                f"已保留 {result['summaries']} 条摘要，"
+                f"工作记忆剩余 {result['remaining']} 条消息。[/green]"
             )
         except Exception as e:
             status.stop()
