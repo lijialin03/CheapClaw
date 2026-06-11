@@ -258,6 +258,8 @@ class Memory:
         self.persist_path = persist_path
         self._llm_available = llm_call is not None
         self._llm_call = llm_call or (lambda _: "")
+        self.last_events: list[dict] = []
+        self._event_callback: Optional[Callable[[dict], None]] = None
 
         if persist_path and os.path.exists(persist_path):
             self.load()
@@ -268,9 +270,23 @@ class Memory:
         self.buffer.add("user", content)
 
     def add_assistant_message(self, content: str):
+        self.last_events.clear()
         self.buffer.add("assistant", content)
         # 回复写完后检查是否需要压缩（避免在 get_context 时才压缩）
         self._maybe_compress()
+
+    def consume_events(self) -> list[dict]:
+        events = self.last_events[:]
+        self.last_events.clear()
+        return events
+
+    def set_event_callback(self, callback: Optional[Callable[[dict], None]]) -> None:
+        self._event_callback = callback
+
+    def _record_event(self, event: dict) -> None:
+        self.last_events.append(event)
+        if self._event_callback:
+            self._event_callback(event)
 
     def set_key_info(self, key: str, value: str):
         self.key_info.set(key, value)
@@ -303,7 +319,7 @@ class Memory:
 
         return "\n\n".join(parts)
 
-    def compress_with_summary(self, summary_model=None) -> None:
+    def compress_with_summary(self, summary_model=None) -> bool:
         """手动触发 LLM 摘要压缩。
 
         调用 LLM 对工作记忆中最旧的消息做摘要，存入 Level 2。
@@ -313,10 +329,10 @@ class Memory:
         if summary_model is not None:
             old_call = self._llm_call
             self._llm_call = lambda p: summary_model.send_text(p)
-            self._try_compress()
+            compressed = self._try_compress()
             self._llm_call = old_call
-        else:
-            self._try_compress()
+            return compressed
+        return self._try_compress()
 
     def clear(self):
         self.buffer.messages.clear()
@@ -336,25 +352,46 @@ class Memory:
 
         # 1) 尝试 LLM 摘要压缩（如果有 LLM 可用）
         if self._llm_available and self.buffer.message_count() >= 4:
-            self._try_compress()
+            before_summaries = len(self.compressor.summaries)
+            before_messages = self.buffer.message_count()
+            self._record_event({"type": "auto_compressing"})
+            compressed = self._try_compress()
+            if compressed and len(self.compressor.summaries) > before_summaries:
+                self._record_event({
+                    "type": "auto_compressed",
+                    "removed": before_messages - self.buffer.message_count(),
+                    "summaries": len(self.compressor.summaries),
+                    "remaining": self.buffer.message_count(),
+                })
 
         # 2) 若仍超限，丢弃最旧消息对释放空间
         while (self.buffer.total_tokens() > self.buffer.max_tokens * 0.9
                and self.buffer.message_count() >= 4):
+            before_messages = self.buffer.message_count()
+            self._record_event({"type": "auto_trimming"})
             self.buffer.pop_oldest_pairs(keep=self.buffer.message_count() - 2)
+            self._record_event({
+                "type": "auto_trimmed",
+                "removed": before_messages - self.buffer.message_count(),
+                "remaining": self.buffer.message_count(),
+            })
 
-    def _try_compress(self) -> None:
+    def _try_compress(self) -> bool:
         """将工作记忆中最旧的一批消息压缩为摘要（需 LLM 支持）。"""
         if len(self.buffer.messages) < 4:
-            return
-        removed = self.buffer.pop_oldest_pairs(keep=2)
+            return False
+        removed = self.buffer.messages[:-2]
         if not removed:
-            return
+            return False
         text = "\n".join(
             f"{'用户' if m.role == 'user' else 'AI'}: {m.content[:600]}"
             for m in removed
         )
-        self.compressor.compress(text, self._llm_call)
+        summary = self.compressor.compress(text, self._llm_call)
+        if not summary:
+            return False
+        self.buffer.messages = self.buffer.messages[-2:]
+        return True
 
     # ---- 持久化 ---------------------------------------------------------
 

@@ -12,9 +12,8 @@ def main():
                         help="选择 UI 模式 (默认: rich)")
     args = parser.parse_args()
 
-    # 1. 先启动浏览器客户端
-    client = QwenClient(headless=False, user_data_dir="./config/qwen_logged_in")
-    client.start()
+    # 1. 先启动浏览器客户端：默认复用 config/storage_state.json
+    client = QwenClient(headless=True)
 
     # 2. 再初始化记忆系统（需要 client.send_text 做自动压缩摘要）
     memory = Memory(

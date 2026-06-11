@@ -1,5 +1,6 @@
 # utils.py
 import os
+import sys
 import time
 from datetime import datetime
 from typing import Optional
@@ -12,16 +13,18 @@ class Logger:
     简单的日志记录类，支持控制台输出和文件记录，以及 Playwright 页面截图。
     """
 
-    def __init__(self, name: str = "CheapClaw", log_dir: str = "logs", screenshot_dir: str = "screenshots"):
+    def __init__(self, name: str = "CheapClaw", log_dir: str = "logs", screenshot_dir: str = "screenshots", console: bool = False):
         """
         初始化 Logger。
         :param name: 日志记录器名称（用于控制台/文件标识）
         :param log_dir: 日志文件存储目录
         :param screenshot_dir: 截图文件存储目录
+        :param console: 是否同步输出到终端
         """
         self.name = name
         self.log_dir = log_dir
         self.screenshot_dir = screenshot_dir
+        self.console = console
         self._ensure_dirs()
         self._page: Optional[Page] = None
 
@@ -32,18 +35,17 @@ class Logger:
                 os.makedirs(d, exist_ok=True)
 
     def _log(self, level: str, msg: str, *args, **kwargs):
-        """内部日志记录方法，输出到控制台，并可选写入文件"""
+        """内部日志记录方法，默认写入文件，可选同步输出到终端。"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         formatted_msg = f"[{timestamp}] [{level}] [{self.name}] {msg}"
-        # 控制台输出
-        print(formatted_msg, *args, **kwargs)
-        # 写入文件（每天一个日志文件）
+        if self.console:
+            print(formatted_msg, *args, **kwargs)
         log_file = os.path.join(self.log_dir, f"{datetime.now().strftime('%Y%m%d')}.log")
         try:
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write(formatted_msg + "\n")
         except Exception as e:
-            print(f"[ERROR] Failed to write log file: {e}")
+            print(f"[ERROR] Failed to write log file: {e}", file=sys.stderr)
 
     def info(self, msg: str, *args, **kwargs):
         self._log("INFO", msg, *args, **kwargs)
@@ -92,8 +94,8 @@ class Logger:
 
 _default_logger = None
 
-def get_logger(name: str = "Logger", log_dir: str = "logs", screenshot_dir: str = "screenshots") -> Logger:
+def get_logger(name: str = "Logger", log_dir: str = "logs", screenshot_dir: str = "screenshots", console: bool = False) -> Logger:
     global _default_logger
     if _default_logger is None:
-        _default_logger = Logger(name, log_dir, screenshot_dir)
+        _default_logger = Logger(name, log_dir, screenshot_dir, console=console)
     return _default_logger

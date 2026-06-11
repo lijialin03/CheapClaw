@@ -1,21 +1,17 @@
 # ui/rich_cli.py
 import re
 import readline
-from datetime import datetime
-
 from rich.console import Console
-from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.prompt import Prompt
 from rich.syntax import Syntax
-from rich.text import Text
-from rich import box
 
 from bot import Agent
 from utils.processor import remove_line_numbers_keep_markdown
 
 
 class RichCLI:
+    INPUT_PROMPT = "\001\033[1;32m\002你> \001\033[0m\002"
+
     def __init__(self, agent: Agent):
         self.agent = agent
         self.console = Console(force_terminal=True)  # 强制 ANSI 转义，提高兼容性
@@ -29,6 +25,28 @@ class RichCLI:
         except FileNotFoundError:
             pass
         readline.set_history_length(500)
+
+    def _update_status_for_event(self, status):
+        def update(event: dict) -> None:
+            if event.get("type") == "auto_compressing":
+                status.update("[bold cyan]正在自动压缩历史记忆...[/bold cyan]")
+            elif event.get("type") == "auto_trimming":
+                status.update("[bold yellow]工作记忆超限，正在整理历史...[/bold yellow]")
+
+        return update
+
+    def _display_events(self, events: list[dict]) -> None:
+        for event in events:
+            if event.get("type") == "auto_compressed":
+                self.console.print(
+                    f"[dim cyan]已自动压缩历史记忆：归档 {event['removed']} 条消息，"
+                    f"当前 {event['summaries']} 条摘要，工作记忆剩余 {event['remaining']} 条。[/dim cyan]"
+                )
+            elif event.get("type") == "auto_trimmed":
+                self.console.print(
+                    f"[dim yellow]工作记忆超限，已自动丢弃 {event['removed']} 条较早消息，"
+                    f"剩余 {event['remaining']} 条。[/dim yellow]"
+                )
 
     def _display_ai_response(self, text: str) -> None:
         """
@@ -72,11 +90,18 @@ class RichCLI:
         if logger:
             logger.info("Rich CLI 增强版启动")
         self.console.print(Panel.fit("🤖 通义千问对话助手", style="bold cyan", border_style="cyan"))
+        with self.console.status("[bold cyan]正在启动浏览器客户端...[/bold cyan]"):
+            try:
+                self.agent.start()
+            except Exception as e:
+                self.console.print(f"[red]启动失败: {e}[/red]")
+                self.agent.close()
+                return
         self.console.print("[dim]↑↓ 历史记录 | /clear 清屏 | /compress 压缩记忆 | /exit 退出[/dim]")
 
         while True:
             try:
-                user_input = Prompt.ask("\n[bold green]你[/bold green]")
+                user_input = input(f"\n{self.INPUT_PROMPT}")
             except (KeyboardInterrupt, EOFError):
                 self.console.print("\n[yellow]再见！[/yellow]")
                 break
@@ -92,19 +117,18 @@ class RichCLI:
                 self._compress_memory()
                 continue
 
-            # 显示用户消息（可选项，用简单方式显示）
-            self.console.print(f"[bold green]你:[/bold green] {user_input}")
-
             # AI 思考状态
             status = self.console.status("[bold cyan]AI 正在思考...[/bold cyan]")
             status.start()
             try:
-                assistant_reply = self.agent.run_turn(user_input)
+                assistant_reply = self.agent.run_turn(user_input, self._update_status_for_event(status))
             except Exception as e:
                 self.console.print(f"[red]❌ 出错了: {e}[/red]")
                 status.stop()
                 continue
             status.stop()
+
+            self._display_events(self.agent.consume_events())
 
             # 显示 AI 回复
             self.console.print("\n[bold blue]AI:[/bold blue]")
@@ -123,7 +147,7 @@ class RichCLI:
         try:
             result = self.agent.compress_memory()
             status.stop()
-            if result["status"] == "skipped":
+            if result["status"] in {"skipped", "failed"}:
                 self.console.print(f"[yellow]{result['message']}[/yellow]")
                 return
             self.console.print(
