@@ -4,6 +4,7 @@ import readline
 from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
+from rich.table import Table
 
 from bot import Agent
 from utils.processor import remove_line_numbers_keep_markdown
@@ -32,6 +33,8 @@ class RichCLI:
                 status.update("[bold cyan]正在自动压缩历史记忆...[/bold cyan]")
             elif event.get("type") == "auto_trimming":
                 status.update("[bold yellow]工作记忆超限，正在整理历史...[/bold yellow]")
+            elif event.get("type") == "file_transporting":
+                status.update("[bold cyan]内容较长，正在以文件形式发送...[/bold cyan]")
 
         return update
 
@@ -116,6 +119,9 @@ class RichCLI:
             if user_input.lower() == "/compress":
                 self._compress_memory()
                 continue
+            if user_input.startswith("/"):
+                self._handle_agent_command(user_input)
+                continue
 
             # AI 思考状态
             status = self.console.status("[bold cyan]AI 正在思考...[/bold cyan]")
@@ -139,6 +145,53 @@ class RichCLI:
         # 保存历史
         readline.write_history_file(".cli_history")
         self.agent.close()
+
+    def _handle_agent_command(self, user_input: str) -> None:
+        status = self.console.status("[bold cyan]执行命令中...[/bold cyan]")
+        status.start()
+        try:
+            result = self.agent.handle_command(user_input, self._update_status_for_event(status))
+        except Exception as e:
+            status.stop()
+            self.console.print(f"[red]命令失败: {e}[/red]")
+            return
+        status.stop()
+        self._display_events(self.agent.consume_events())
+        self._display_command_result(result)
+
+    def _display_command_result(self, result: dict) -> None:
+        result_type = result.get("type")
+        if result_type == "error":
+            self.console.print(f"[red]{result.get('message', '命令失败')}[/red]")
+        elif result_type == "file":
+            path = result.get("path", "")
+            content = result.get("content", "")
+            self.console.print(Panel(content or "[dim]空文件[/dim]", title=path, border_style="cyan"))
+        elif result_type == "list":
+            table = Table(title=f"目录: {result.get('path', '.')}")
+            table.add_column("类型", style="cyan")
+            table.add_column("大小", justify="right")
+            table.add_column("路径")
+            for entry in result.get("entries", []):
+                table.add_row(entry["type"], str(entry["size"]), entry["path"])
+            self.console.print(table)
+        elif result_type == "assistant":
+            self.console.print("\n[bold blue]AI:[/bold blue]")
+            self._display_ai_response(result.get("content", ""))
+            self.console.print()
+        elif result_type == "edit_plan":
+            plan = result.get("plan", {})
+            self.console.print(f"[bold cyan]Staged edit:[/bold cyan] {plan.get('path', '')}")
+            if plan.get("reason"):
+                self.console.print(f"[dim]{plan['reason']}[/dim]")
+            diff = result.get("diff") or ""
+            if diff:
+                self.console.print(Syntax(diff, lexer="diff", theme="monokai", line_numbers=False))
+            self.console.print("[dim]使用 /apply 应用，或 /discard 丢弃。[/dim]")
+        elif result_type == "text":
+            self.console.print(result.get("content", ""))
+        else:
+            self.console.print(str(result))
 
     def _compress_memory(self):
         """手动触发记忆压缩：将工作记忆中最旧的消息对压缩为 LLM 摘要。"""
