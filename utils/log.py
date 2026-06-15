@@ -13,18 +13,27 @@ class Logger:
     简单的日志记录类，支持控制台输出和文件记录，以及 Playwright 页面截图。
     """
 
-    def __init__(self, name: str = "CheapClaw", log_dir: str = "logs", screenshot_dir: str = "screenshots", console: bool = False):
+    def __init__(
+        self,
+        name: str = "CheapClaw",
+        log_dir: str = "logs",
+        screenshot_dir: str = "screenshots",
+        console: bool = False,
+        log_level: str = None,
+    ):
         """
         初始化 Logger。
         :param name: 日志记录器名称（用于控制台/文件标识）
         :param log_dir: 日志文件存储目录
         :param screenshot_dir: 截图文件存储目录
         :param console: 是否同步输出到终端
+        :param log_level: 日志级别，默认读取 CHEAPCLAW_LOG_LEVEL，debug 时才保存截图
         """
         self.name = name
         self.log_dir = log_dir
         self.screenshot_dir = screenshot_dir
         self.console = console
+        self.log_level = (log_level or os.getenv("CHEAPCLAW_LOG_LEVEL", "info")).lower()
         self._ensure_dirs()
         self._page: Optional[Page] = None
 
@@ -73,6 +82,8 @@ class Logger:
         :param full_page: 是否截取整个页面（滚动截图）
         :return: 截图文件路径，如果未绑定 page 则返回 None
         """
+        if self.log_level != "debug":
+            return None
         if self._page is None:
             self.error("No Page attached. Call attach_page(page) first.")
             return None
@@ -94,8 +105,14 @@ class Logger:
 
 _default_logger = None
 
-def get_logger(name: str = "Logger", log_dir: str = "logs", screenshot_dir: str = "screenshots", console: bool = False) -> Logger:
+def get_logger(
+    name: str = "Logger",
+    log_dir: str = "logs",
+    screenshot_dir: str = "screenshots",
+    console: bool = False,
+    log_level: str = None,
+) -> Logger:
     global _default_logger
     if _default_logger is None:
-        _default_logger = Logger(name, log_dir, screenshot_dir, console=console)
+        _default_logger = Logger(name, log_dir, screenshot_dir, console=console, log_level=log_level)
     return _default_logger

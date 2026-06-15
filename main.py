@@ -21,6 +21,10 @@ def main():
                         help="超过该字符数时改用文件上传发送 (默认: 3500)")
     parser.add_argument("--disable-file-transport", action="store_true",
                         help="禁用长内容自动文件上传")
+    parser.add_argument("--disable-tool-orchestration", action="store_true",
+                        help="禁用自然语言只读工具编排")
+    parser.add_argument("--max-tool-steps", type=int, default=5,
+                        help="单轮自然语言工具调用最大步数 (默认: 5)")
     args = parser.parse_args()
 
     # 1. 先启动浏览器客户端：默认复用 config/storage_state.json
@@ -50,6 +54,8 @@ def main():
         workspace=workspace,
         max_text_chars=args.max_text_chars,
         file_transport_enabled=not args.disable_file_transport,
+        tool_orchestration_enabled=not args.disable_tool_orchestration,
+        max_tool_steps=args.max_tool_steps,
     )
 
     # 5. 根据参数选择 UI
