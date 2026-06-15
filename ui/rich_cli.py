@@ -5,8 +5,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
 
-from bot import Agent
-from utils.processor import remove_line_numbers_keep_markdown
+from agent_core import Agent
+from utils.text_helpers import remove_line_numbers_keep_markdown
 
 
 class RichCLI:

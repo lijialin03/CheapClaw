@@ -1,4 +1,4 @@
-# bot/memory.py
+# agent_core/memory.py
 """
 分层对话记忆系统
 
@@ -19,6 +19,16 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from .prompt_loader import render_prompt
+
+
+RECENT_CONTEXT_BUDGET = 2000
+AUTO_COMPRESS_THRESHOLD = 0.8
+AUTO_TRIM_THRESHOLD = 0.9
+MIN_MESSAGES_TO_COMPRESS = 4
+RECENT_MESSAGES_TO_KEEP = 2
+SUMMARY_MESSAGE_CHAR_LIMIT = 600
+
 
 # ---------------------------------------------------------------------------
 # Token 估算（不依赖外部 tokenizer）
@@ -31,7 +41,7 @@ def estimate_tokens(text: str) -> int:
     """
     if not text:
         return 0
-    cjk = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+    cjk = sum(1 for char in text if "\u4e00" <= char <= "\u9fff")
     other = len(text) - cjk
     return int(cjk * 1.5 + other * 0.3) + 2
 
@@ -43,27 +53,32 @@ def estimate_tokens(text: str) -> int:
 @dataclass
 class Message:
     """单条对话消息"""
+
     role: str          # "user" | "assistant"
     content: str
     token_count: int
     timestamp: float
 
     def to_dict(self) -> dict:
-        return {"role": self.role, "content": self.content,
-                "token_count": self.token_count, "timestamp": self.timestamp}
+        return {
+            "role": self.role,
+            "content": self.content,
+            "token_count": self.token_count,
+            "timestamp": self.timestamp,
+        }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Message":
-        return cls(role=d["role"], content=d["content"],
-                   token_count=d.get("token_count", estimate_tokens(d["content"])),
-                   timestamp=d.get("timestamp", 0.0))
+    def from_dict(cls, data: dict) -> "Message":
+        return cls(
+            role=data["role"],
+            content=data["content"],
+            token_count=data.get("token_count", estimate_tokens(data["content"])),
+            timestamp=data.get("timestamp", 0.0),
+        )
 
 
 class ConversationBuffer:
-    """Level 1: 工作记忆
-
-    保留最近的完整对话，超过 ``max_tokens`` 时触发压缩通知。
-    """
+    """Level 1: 工作记忆，保留最近的完整对话。"""
 
     def __init__(self, max_tokens: int = 3000):
         self.messages: list[Message] = []
@@ -78,12 +93,12 @@ class ConversationBuffer:
         ))
 
     def total_tokens(self) -> int:
-        return sum(m.token_count for m in self.messages)
+        return sum(message.token_count for message in self.messages)
 
     def message_count(self) -> int:
         return len(self.messages)
 
-    def pop_oldest_pairs(self, keep: int = 2) -> list[Message]:
+    def pop_oldest_messages(self, keep: int = RECENT_MESSAGES_TO_KEEP) -> list[Message]:
         """弹出最旧的 ``len(messages) - keep`` 条消息，返回被弹出的消息。"""
         if len(self.messages) <= keep:
             return []
@@ -91,22 +106,26 @@ class ConversationBuffer:
         self.messages = self.messages[-keep:]
         return removed
 
+    def pop_oldest_pairs(self, keep: int = RECENT_MESSAGES_TO_KEEP) -> list[Message]:
+        """兼容旧命名；实际按消息条数保留。"""
+        return self.pop_oldest_messages(keep=keep)
+
     def get_context(self, budget: int = None) -> str:
         """在 ``budget`` token 内返回最近的对话文本。"""
         budget = budget or self.max_tokens
         selected: list[Message] = []
         total = 0
-        for msg in reversed(self.messages):
-            if total + msg.token_count > budget:
+        for message in reversed(self.messages):
+            if total + message.token_count > budget:
                 break
-            selected.append(msg)
-            total += msg.token_count
+            selected.append(message)
+            total += message.token_count
         selected.reverse()
-        lines = []
-        for msg in selected:
-            role = "用户" if msg.role == "user" else "AI"
-            lines.append(f"{role}: {msg.content}")
-        return "\n".join(lines)
+        return "\n".join(self._format_message(message) for message in selected)
+
+    def _format_message(self, message: Message) -> str:
+        role = "用户" if message.role == "user" else "AI"
+        return f"{role}: {message.content}"
 
 
 # ---------------------------------------------------------------------------
@@ -114,34 +133,17 @@ class ConversationBuffer:
 # ---------------------------------------------------------------------------
 
 class MemoryCompressor:
-    """Level 2: 压缩记忆
-
-    将老的历史对话通过 LLM 压缩为摘要，保存在 ``summaries`` 列表中。
-    ``max_summaries`` 限制摘要数量，超出时自动合并最早的条目。
-    """
+    """Level 2: 压缩记忆，将老的历史对话通过 LLM 压缩为摘要。"""
 
     def __init__(self, max_summaries: int = 5):
         self.summaries: list[dict] = []   # [{"content": str, "timestamp": float}, ...]
         self.max_summaries = max_summaries
 
     def compress(self, text: str, llm_call: Callable[[str], str]) -> str:
-        """调用 LLM 对 ``text`` 做摘要，存入 summaries 列表。
-
-        Args:
-            text: 需要压缩的对话文本。
-            llm_call: 接收 prompt 返回 summary 的可调用对象。
-
-        Returns:
-            生成的摘要文本；若 LLM 调用失败返回空字符串。
-        """
-        prompt = (
-            "请用一两句话概括以下对话的核心内容，"
-            "保留关键事实、用户偏好、决策、讨论的技术方案：\n"
-            f"{text}"
-        )
+        """调用 LLM 对 ``text`` 做摘要，存入 summaries 列表。"""
+        prompt = self._build_summary_prompt(text)
         try:
-            summary = llm_call(prompt)
-            summary = summary.strip()
+            summary = llm_call(prompt).strip()
             if summary:
                 self.summaries.append({
                     "content": summary,
@@ -152,19 +154,12 @@ class MemoryCompressor:
         except Exception:
             return ""
 
-    def _trim(self):
-        """超出 ``max_summaries`` 时，将最早的两条合并为一条。"""
-        while len(self.summaries) > self.max_summaries:
-            merged = self.summaries.pop(0)
-            merged["content"] += "\n" + self.summaries.pop(0)["content"]
-            self.summaries.insert(0, merged)
-
     def get_context(self) -> str:
         if not self.summaries:
             return ""
         lines = ["【历史摘要】"]
-        for i, s in enumerate(self.summaries, 1):
-            lines.append(f"  {i}. {s['content']}")
+        for index, summary in enumerate(self.summaries, 1):
+            lines.append(f"  {index}. {summary['content']}")
         return "\n".join(lines)
 
     def to_dict(self) -> list:
@@ -173,17 +168,23 @@ class MemoryCompressor:
     def from_dict(self, data: list):
         self.summaries = data[:]
 
+    def _build_summary_prompt(self, text: str) -> str:
+        return render_prompt("memory_summary.md", text=text)
+
+    def _trim(self):
+        """超出 ``max_summaries`` 时，将最早的两条合并为一条。"""
+        while len(self.summaries) > self.max_summaries:
+            merged = self.summaries.pop(0)
+            merged["content"] += "\n" + self.summaries.pop(0)["content"]
+            self.summaries.insert(0, merged)
+
 
 # ---------------------------------------------------------------------------
 # Level 3: 关键信息（简化版 key-value store）
 # ---------------------------------------------------------------------------
 
 class KeyInfoStore:
-    """Level 3: 关键信息
-
-    存储从对话中提取的持久化信息（用户偏好、技术决策、项目约定等）。
-    当前为手动 set/get 模式；可扩展为自动抽取。
-    """
+    """Level 3: 关键信息，存储持久化偏好、技术决策和项目约定。"""
 
     def __init__(self):
         self._infos: dict[str, str] = {}
@@ -201,8 +202,8 @@ class KeyInfoStore:
         if not self._infos:
             return ""
         lines = ["【关键信息】"]
-        for k, v in self._infos.items():
-            lines.append(f"  {k}: {v}")
+        for key, value in self._infos.items():
+            lines.append(f"  {key}: {value}")
         return "\n".join(lines)
 
     def to_dict(self) -> dict:
@@ -220,23 +221,7 @@ class KeyInfoStore:
 # ---------------------------------------------------------------------------
 
 class Memory:
-    """分层对话记忆管理器
-
-    用法:
-        >>> memory = Memory(
-        ...     buffer_max_tokens=3000,
-        ...     max_summaries=5,
-        ...     persist_path="memory.json",
-        ...     llm_call=client.send_text,   # 用于自动压缩
-        ... )
-        >>> memory.add_user_message("你好")
-        >>> memory.add_assistant_message("你好！有什么可以帮你的？")
-        >>> print(memory.get_context())
-
-    自动管理:
-        - 每次添加 assistant 消息后检查工作记忆是否超过阈值
-        - 超过时将最早的一批消息压缩为摘要放入 Level 2
-    """
+    """分层对话记忆管理器。"""
 
     def __init__(
         self,
@@ -245,13 +230,6 @@ class Memory:
         buffer_max_tokens: int = 3000,
         max_summaries: int = 5,
     ):
-        """
-        Args:
-            persist_path: 持久化 JSON 文件路径。
-            llm_call: 调用 LLM 生成摘要的函数（接收 prompt 返回文本）。
-            buffer_max_tokens: 工作记忆 token 上限。
-            max_summaries: 最多保留的摘要条数。
-        """
         self.buffer = ConversationBuffer(max_tokens=buffer_max_tokens)
         self.compressor = MemoryCompressor(max_summaries=max_summaries)
         self.key_info = KeyInfoStore()
@@ -272,7 +250,6 @@ class Memory:
     def add_assistant_message(self, content: str):
         self.last_events.clear()
         self.buffer.add("assistant", content)
-        # 回复写完后检查是否需要压缩（避免在 get_context 时才压缩）
         self._maybe_compress()
 
     def consume_events(self) -> list[dict]:
@@ -282,11 +259,6 @@ class Memory:
 
     def set_event_callback(self, callback: Optional[Callable[[dict], None]]) -> None:
         self._event_callback = callback
-
-    def _record_event(self, event: dict) -> None:
-        self.last_events.append(event)
-        if self._event_callback:
-            self._event_callback(event)
 
     def set_key_info(self, key: str, value: str):
         self.key_info.set(key, value)
@@ -300,98 +272,106 @@ class Memory:
         按优先级: 关键信息 > 历史摘要 > 最近对话。
         ``as_text`` 参数保留以便向后兼容。
         """
-        parts: list[str] = []
-
-        # Level 3
-        kic = self.key_info.get_context()
-        if kic:
-            parts.append(kic)
-
-        # Level 2
-        sc = self.compressor.get_context()
-        if sc:
-            parts.append(sc)
-
-        # Level 1（预留 2000 tokens）
-        rc = self.buffer.get_context(budget=2000)
-        if rc:
-            parts.append("【最近对话】\n" + rc)
-
-        return "\n\n".join(parts)
+        return self._build_context()
 
     def compress_with_summary(self, summary_model=None) -> bool:
-        """手动触发 LLM 摘要压缩。
+        """手动触发 LLM 摘要压缩。"""
+        if summary_model is None:
+            return self._try_compress()
 
-        调用 LLM 对工作记忆中最旧的消息做摘要，存入 Level 2。
-        ``summary_model`` 可以传入外部 LLM 客户端（须有 ``send_text`` 方法）；
-        若为 None，则使用初始化时传入的 ``llm_call``。
-        """
-        if summary_model is not None:
-            old_call = self._llm_call
-            self._llm_call = lambda p: summary_model.send_text(p)
-            compressed = self._try_compress()
+        old_call = self._llm_call
+        self._llm_call = lambda prompt: summary_model.send_text(prompt)
+        try:
+            return self._try_compress()
+        finally:
             self._llm_call = old_call
-            return compressed
-        return self._try_compress()
 
     def clear(self):
         self.buffer.messages.clear()
         self.compressor.summaries.clear()
         self.key_info.clear()
 
+    # ---- Context 组装 -----------------------------------------------------
+
+    def _build_context(self) -> str:
+        parts: list[str] = []
+        self._append_context_part(parts, self.key_info.get_context())
+        self._append_context_part(parts, self.compressor.get_context())
+
+        recent_context = self.buffer.get_context(budget=RECENT_CONTEXT_BUDGET)
+        if recent_context:
+            parts.append("【最近对话】\n" + recent_context)
+
+        return "\n\n".join(parts)
+
+    def _append_context_part(self, parts: list[str], context: str) -> None:
+        if context:
+            parts.append(context)
+
     # ---- 压缩逻辑 --------------------------------------------------------
 
     def _maybe_compress(self):
-        """工作记忆超过阈值时自动压缩。
-
-        优先使用 LLM 将最早的消息对压缩为摘要（存入 Level 2）；
-        若 LLM 不可用或压缩后仍超限，回退到直接丢弃最旧消息。
-        """
-        if self.buffer.total_tokens() < self.buffer.max_tokens * 0.8:
+        """工作记忆超过阈值时自动压缩。"""
+        if self.buffer.total_tokens() < self.buffer.max_tokens * AUTO_COMPRESS_THRESHOLD:
             return
 
-        # 1) 尝试 LLM 摘要压缩（如果有 LLM 可用）
-        if self._llm_available and self.buffer.message_count() >= 4:
-            before_summaries = len(self.compressor.summaries)
-            before_messages = self.buffer.message_count()
-            self._record_event({"type": "auto_compressing"})
-            compressed = self._try_compress()
-            if compressed and len(self.compressor.summaries) > before_summaries:
-                self._record_event({
-                    "type": "auto_compressed",
-                    "removed": before_messages - self.buffer.message_count(),
-                    "summaries": len(self.compressor.summaries),
-                    "remaining": self.buffer.message_count(),
-                })
+        if self._llm_available and self.buffer.message_count() >= MIN_MESSAGES_TO_COMPRESS:
+            self._auto_compress()
 
-        # 2) 若仍超限，丢弃最旧消息对释放空间
-        while (self.buffer.total_tokens() > self.buffer.max_tokens * 0.9
-               and self.buffer.message_count() >= 4):
-            before_messages = self.buffer.message_count()
-            self._record_event({"type": "auto_trimming"})
-            self.buffer.pop_oldest_pairs(keep=self.buffer.message_count() - 2)
+        while (
+            self.buffer.total_tokens() > self.buffer.max_tokens * AUTO_TRIM_THRESHOLD
+            and self.buffer.message_count() >= MIN_MESSAGES_TO_COMPRESS
+        ):
+            self._trim_oldest_messages()
+
+    def _auto_compress(self) -> None:
+        before_summaries = len(self.compressor.summaries)
+        before_messages = self.buffer.message_count()
+        self._record_event({"type": "auto_compressing"})
+        compressed = self._try_compress()
+        if compressed and len(self.compressor.summaries) > before_summaries:
             self._record_event({
-                "type": "auto_trimmed",
+                "type": "auto_compressed",
                 "removed": before_messages - self.buffer.message_count(),
+                "summaries": len(self.compressor.summaries),
                 "remaining": self.buffer.message_count(),
             })
 
     def _try_compress(self) -> bool:
         """将工作记忆中最旧的一批消息压缩为摘要（需 LLM 支持）。"""
-        if len(self.buffer.messages) < 4:
+        if len(self.buffer.messages) < MIN_MESSAGES_TO_COMPRESS:
             return False
-        removed = self.buffer.messages[:-2]
+        removed = self.buffer.messages[:-RECENT_MESSAGES_TO_KEEP]
         if not removed:
             return False
-        text = "\n".join(
-            f"{'用户' if m.role == 'user' else 'AI'}: {m.content[:600]}"
-            for m in removed
-        )
+
+        text = self._format_messages_for_summary(removed)
         summary = self.compressor.compress(text, self._llm_call)
         if not summary:
             return False
-        self.buffer.messages = self.buffer.messages[-2:]
+        self.buffer.messages = self.buffer.messages[-RECENT_MESSAGES_TO_KEEP:]
         return True
+
+    def _trim_oldest_messages(self) -> None:
+        before_messages = self.buffer.message_count()
+        self._record_event({"type": "auto_trimming"})
+        self.buffer.pop_oldest_messages(keep=self.buffer.message_count() - 2)
+        self._record_event({
+            "type": "auto_trimmed",
+            "removed": before_messages - self.buffer.message_count(),
+            "remaining": self.buffer.message_count(),
+        })
+
+    def _format_messages_for_summary(self, messages: list[Message]) -> str:
+        return "\n".join(
+            f"{'用户' if message.role == 'user' else 'AI'}: {message.content[:SUMMARY_MESSAGE_CHAR_LIMIT]}"
+            for message in messages
+        )
+
+    def _record_event(self, event: dict) -> None:
+        self.last_events.append(event)
+        if self._event_callback:
+            self._event_callback(event)
 
     # ---- 持久化 ---------------------------------------------------------
 
@@ -399,18 +379,18 @@ class Memory:
         if not self.persist_path:
             return
         data = {
-            "buffer": [m.to_dict() for m in self.buffer.messages],
+            "buffer": [message.to_dict() for message in self.buffer.messages],
             "summaries": self.compressor.to_dict(),
             "key_info": self.key_info.to_dict(),
         }
-        with open(self.persist_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        with open(self.persist_path, "w", encoding="utf-8") as file:
+            json.dump(data, file, ensure_ascii=False, indent=2)
 
     def load(self):
         if not self.persist_path or not os.path.exists(self.persist_path):
             return
-        with open(self.persist_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        self.buffer.messages = [Message.from_dict(m) for m in data.get("buffer", [])]
+        with open(self.persist_path, "r", encoding="utf-8") as file:
+            data = json.load(file)
+        self.buffer.messages = [Message.from_dict(message) for message in data.get("buffer", [])]
         self.compressor.from_dict(data.get("summaries", []))
         self.key_info.from_dict(data.get("key_info", {}))

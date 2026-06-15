@@ -3,8 +3,8 @@ import argparse
 from pathlib import Path
 
 from llm.qwen import QwenClient
-from bot import Agent, Assembler, Memory
-from bot.workspace import Workspace
+from agent_core import Agent, Assembler, Memory
+from agent_core.workspace import Workspace
 from ui import RichCLI
 
 
