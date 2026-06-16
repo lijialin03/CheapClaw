@@ -54,6 +54,9 @@ class BrowserFrontendAdapter(ABC):
     def is_generation_in_progress(self) -> bool:
         raise NotImplementedError
 
+    def assistant_message_count(self) -> int | None:
+        return None
+
     @abstractmethod
     def send_current_message(self, **kwargs) -> None:
         raise NotImplementedError
@@ -190,23 +193,52 @@ class BrowserConversationWorkflow:
     def page(self):
         return self.session.page
 
-    def wait_for_reply(self) -> str:
+    def wait_for_reply(self, previous_assistant_message_count: int | None = None) -> str:
         deadline = time.time() + self.config.timeout / 1000
         last_reply = ""
+        completed_reply = ""
+        completed_at = None
+        logged_waiting_for_baseline = False
+        stable_completion_seconds = 1.5
 
         while time.time() < deadline:
-            ab_reply = self.adapter.try_handle_reply_preference_ui()
-            if ab_reply:
-                return ab_reply
+            baseline_advanced = True
+            if previous_assistant_message_count is not None:
+                current_assistant_message_count = self.adapter.assistant_message_count()
+                baseline_advanced = (
+                    current_assistant_message_count is not None
+                    and current_assistant_message_count > previous_assistant_message_count
+                )
+                if not baseline_advanced and not logged_waiting_for_baseline:
+                    self.logger.debug(
+                        "等待新 assistant 回复节点出现: "
+                        f"当前 {current_assistant_message_count}, baseline {previous_assistant_message_count}"
+                    )
+                    logged_waiting_for_baseline = True
 
-            reply = self.adapter.latest_reply_text()
-            if reply and reply != last_reply:
-                last_reply = reply
-                self.logger.debug(f"检测到回复更新，当前长度 {len(reply)}")
+            if baseline_advanced:
+                ab_reply = self.adapter.try_handle_reply_preference_ui()
+                if ab_reply:
+                    return ab_reply
 
-            if reply and self.adapter.is_reply_complete() and not self.adapter.is_generation_in_progress():
-                self.logger.debug(f"回复完成，长度 {len(reply)}")
-                return reply
+                reply = self.adapter.latest_reply_text()
+                if reply and reply != last_reply:
+                    last_reply = reply
+                    completed_reply = ""
+                    completed_at = None
+                    self.logger.debug(f"检测到回复更新，当前长度 {len(reply)}")
+
+                if reply and self.adapter.is_reply_complete() and not self.adapter.is_generation_in_progress():
+                    now = time.time()
+                    if completed_reply != reply:
+                        completed_reply = reply
+                        completed_at = now
+                    elif completed_at is not None and now - completed_at >= stable_completion_seconds:
+                        self.logger.debug(f"回复完成，长度 {len(reply)}")
+                        return reply
+                else:
+                    completed_reply = ""
+                    completed_at = None
 
             self.page.wait_for_timeout(500)
 
@@ -217,10 +249,11 @@ class BrowserConversationWorkflow:
         raise TimeoutError("等待 AI 回复超时")
 
     def send_text(self, text: str, **options) -> str:
-        send_kwargs = self.adapter.before_text_send(text, **options)
-        self.adapter.send_current_message(**self._as_kwargs(send_kwargs))
+        send_kwargs = self._as_kwargs(self.adapter.before_text_send(text, **options))
+        previous_assistant_message_count = send_kwargs.pop("previous_assistant_message_count", None)
+        self.adapter.send_current_message(**send_kwargs)
         self.logger.debug("消息已发送，等待 AI 回复...")
-        return self.wait_for_reply()
+        return self.wait_for_reply(previous_assistant_message_count=previous_assistant_message_count)
 
     def send_file(self, file_path: str, prompt: str = None) -> str:
         resolved_path = Path(file_path).expanduser().resolve()
@@ -230,7 +263,8 @@ class BrowserConversationWorkflow:
             raise ValueError(f"不是普通文件: {resolved_path}")
 
         try:
-            send_kwargs = self.adapter.before_file_send(resolved_path, prompt=prompt)
+            send_kwargs = self._as_kwargs(self.adapter.before_file_send(resolved_path, prompt=prompt))
+            previous_assistant_message_count = send_kwargs.pop("previous_assistant_message_count", None)
             self.logger.screenshot("send_file_before_upload", full_page=False)
             self.adapter.upload_file(resolved_path)
             self.logger.info(f"已上传文件: {resolved_path}")
@@ -239,15 +273,15 @@ class BrowserConversationWorkflow:
             if prompt:
                 prompt_kwargs = self.adapter.fill_prompt_after_upload(prompt)
                 if prompt_kwargs:
-                    send_kwargs = {**self._as_kwargs(send_kwargs), **self._as_kwargs(prompt_kwargs)}
+                    send_kwargs = {**send_kwargs, **self._as_kwargs(prompt_kwargs)}
                 self.adapter.wait_until_sendable()
                 self.logger.screenshot("send_file_after_prompt", full_page=False)
 
             self.logger.screenshot("send_file_before_send", full_page=False)
-            self.adapter.send_current_message(**self._as_kwargs(send_kwargs))
+            self.adapter.send_current_message(**send_kwargs)
             self.logger.screenshot("send_file_after_send", full_page=False)
             self.logger.debug("已发送文件消息，等待 AI 回复...")
-            return self.wait_for_reply()
+            return self.wait_for_reply(previous_assistant_message_count=previous_assistant_message_count)
         except Exception:
             self.logger.screenshot("send_file_error", full_page=True)
             raise

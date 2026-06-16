@@ -27,9 +27,7 @@ class QwenAdapter(BrowserFrontendAdapter):
 
     def latest_reply_text(self) -> str:
         try:
-            reply_locator = self.page.locator(
-                ".qwen-chat-message-assistant:last-child .response-message-content"
-            )
+            reply_locator = self.page.locator(".qwen-chat-message-assistant .response-message-content")
             if reply_locator.count() == 0:
                 return ""
             return reply_locator.last.inner_text(timeout=1000).strip()
@@ -38,7 +36,7 @@ class QwenAdapter(BrowserFrontendAdapter):
 
     def is_reply_complete(self) -> bool:
         try:
-            return self.page.locator(".qwen-chat-message-assistant:last-child .message-hoc-container").count() > 0
+            return bool(self.page.evaluate(load_asset_text("qwen/scripts/reply_complete.js")))
         except Exception:
             return False
 
@@ -47,6 +45,9 @@ class QwenAdapter(BrowserFrontendAdapter):
             return bool(self.page.evaluate(load_asset_text("qwen/scripts/generation_in_progress.js")))
         except Exception:
             return False
+
+    def assistant_message_count(self) -> int | None:
+        return self.page.locator(".response-message-content").count()
 
     def try_handle_reply_preference_ui(self) -> str:
         """处理 Qwen 偶发的“您更喜欢哪个回复”双回复评测 UI，默认选择第一个回复。"""
@@ -86,13 +87,17 @@ class QwenAdapter(BrowserFrontendAdapter):
         textarea.click()
         textarea.fill(text)
         self.page.wait_for_timeout(300)
-        return {"previous_user_message_count": self._user_message_count()}
+        return {
+            "previous_user_message_count": self._user_message_count(),
+            "previous_assistant_message_count": self.assistant_message_count(),
+        }
 
     def before_file_send(self, file_path: Path, prompt: str = None):
         self.logger.debug(f"准备上传文件: {file_path}")
         self._try_close_guidance()
         return {
             "previous_user_message_count": self._user_message_count(),
+            "previous_assistant_message_count": self.assistant_message_count(),
             "prefer_button": True,
             "had_text": bool(prompt),
         }
@@ -279,6 +284,7 @@ class QwenClient(BrowserModelClient):
 
     BROWSER_ARGS = BROWSER_ARGS
     LOGGER_NAME = "QwenClient"
+    DISPLAY_NAME = "Qwen"
     DEFAULT_STORAGE_STATE_PATH = STORAGE_STATE_PATH
 
     def __init__(self, headless: bool = False, timeout: int = 120000, logger=None, user_data_dir: str = None, storage_state_path: str = None):

@@ -2,7 +2,7 @@
 import argparse
 from pathlib import Path
 
-from model_clients.qwen import QwenClient
+from model_clients import QwenClient
 from agent_core import Agent, Assembler, Memory
 from agent_core.workspace import Workspace
 from ui import RichCLI
@@ -10,11 +10,19 @@ from ui import RichCLI
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
+MODEL_CLIENTS = {
+    "qwen": QwenClient,
+}
+
 
 def main():
-    parser = argparse.ArgumentParser(description="通义千问终端对话")
+    parser = argparse.ArgumentParser(description="CheapClaw 终端对话助手")
     parser.add_argument("--ui", choices=["rich"], default="rich",
                         help="选择 UI 模式 (默认: rich)")
+    parser.add_argument("--model", choices=MODEL_CLIENTS.keys(), default="qwen",
+                        help="选择模型前端客户端 (默认: qwen)")
+    parser.add_argument("--headed", action="store_true",
+                        help="使用有头浏览器，便于观察登录或前端交互")
     parser.add_argument("--workspace-root", default=str(PROJECT_ROOT),
                         help="Workspace 根目录 (默认: 项目根目录)")
     parser.add_argument("--max-text-chars", type=int, default=3500,
@@ -27,8 +35,10 @@ def main():
                         help="单轮自然语言工具调用最大步数 (默认: 5)")
     args = parser.parse_args()
 
-    # 1. 先启动浏览器客户端：默认复用 config/storage_state.json
-    client = QwenClient(headless=True)
+    # 1. 先初始化模型客户端：默认复用对应客户端的 storage_state
+    client_cls = MODEL_CLIENTS[args.model]
+    client = client_cls(headless=not args.headed)
+    model_name = getattr(client, "DISPLAY_NAME", args.model)
 
     # 2. 再初始化记忆系统（需要 client.send_text 做自动压缩摘要）
     memory = Memory(
@@ -60,7 +70,7 @@ def main():
 
     # 5. 根据参数选择 UI
     if args.ui == "rich":
-        cli = RichCLI(agent)
+        cli = RichCLI(agent, title=f"{model_name} 对话助手")
         cli.run()
 
 if __name__ == "__main__":
