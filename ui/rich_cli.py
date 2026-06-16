@@ -19,6 +19,7 @@ class RichCLI:
         "file_transporting": "[bold cyan]内容较长，正在以文件形式发送...[/bold cyan]",
         "tool_routing": "[bold cyan]正在判断是否需要读取本地信息...[/bold cyan]",
         "tool_planning": "[bold cyan]正在规划需要读取的信息...[/bold cyan]",
+        "file_edit_drafting": "[bold cyan]正在生成文件修改内容...[/bold cyan]",
     }
     STATUS_FORMATTERS = {
         "tool_running_command": lambda event: f"[bold cyan]正在运行命令: {event.get('command', '')}[/bold cyan]",
@@ -111,6 +112,7 @@ class RichCLI:
 
     def _shutdown(self) -> None:
         self._save_readline_history()
+        self._cleanup_tool_checkpoints()
         self.agent.close()
 
     def _compress_memory(self):
@@ -196,3 +198,10 @@ class RichCLI:
 
     def _save_readline_history(self) -> None:
         readline.write_history_file(self.HISTORY_FILE)
+
+    def _cleanup_tool_checkpoints(self) -> None:
+        tool_orchestrator = getattr(self.agent, "tool_orchestrator", None)
+        tool_runner = getattr(tool_orchestrator, "tool_runner", None)
+        cleanup = getattr(tool_runner, "cleanup_checkpoints", None)
+        if callable(cleanup):
+            cleanup()
