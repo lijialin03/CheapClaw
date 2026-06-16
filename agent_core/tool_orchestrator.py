@@ -15,7 +15,7 @@ WORKSPACE_READ_VERBS = (
 )
 WORKSPACE_TARGETS = (
     "目录", "文件", "路径", "当前目录", "workspace", "main.py", ".py", ".json",
-    ".md", ".txt", "/", "./", "agent_core", "ui", "llm", "config",
+    ".md", ".txt", "/", "./", "agent_core", "ui", "model_clients", "config",
 )
 
 

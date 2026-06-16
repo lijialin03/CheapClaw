@@ -2,7 +2,7 @@
 import argparse
 from pathlib import Path
 
-from llm.qwen import QwenClient
+from model_clients.qwen import QwenClient
 from agent_core import Agent, Assembler, Memory
 from agent_core.workspace import Workspace
 from ui import RichCLI
