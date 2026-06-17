@@ -1,0 +1,50 @@
+{
+  "agent": {
+    "max_text_chars": 3500,
+    "file_transport_enabled": true,
+    "tool_orchestration_enabled": true,
+    "max_tool_steps": 5,
+    "upload_dir": null,
+    "tools": {
+      "command_blacklist": ["rm"],
+      "command_whitelist": ["ls", "cd", "cat"],
+      "observation_text_limit": 8000,
+      "subprocess_timeout_seconds": 10,
+      "max_file_edit_bytes": 1000000,
+      "checkpoint_keep_limit": 20,
+      "confirm_command_replies": ["y", "yes", "确认", "执行", "是"],
+      "cancel_command_reply": "no",
+      "tool_router_positive_replies": ["terminal", "tool", "tools", "yes"],
+      "tool_router_negative_replies": ["chat", "none", "no"],
+      "router_sentinel_replies": ["chat", "none", "no", "terminal", "tool", "tools", "yes"],
+      "workspace_read_verbs": ["读取", "读", "查看", "检查", "列出", "看看", "打开", "分析", "总结", "review", "analyze", "read", "show", "list", "stat"],
+      "workspace_targets": ["目录", "文件", "路径", "当前目录", "workspace", "main.py", ".py", ".json", ".md", ".txt", "/", "./", "agent_core", "ui", "model_clients", "config"],
+      "tool_step_limit_message": "已达到终端命令调用步数上限，无法继续读取更多信息。",
+      "file_edit_diff_preview_chars": 3000
+    }
+  },
+  "browser": {
+    "headless": true,
+    "timeout": 120000,
+    "user_data_dir": null,
+    "storage_state_path": null
+  },
+  "memory": {
+    "context_budget": 2500,
+    "key_info_context_budget": 600,
+    "summary_context_budget": 900,
+    "recent_context_budget": 1000,
+    "max_selected_key_info": 8,
+    "max_selected_summaries": 3,
+    "auto_compress_threshold": 0.8,
+    "auto_trim_threshold": 0.9,
+    "min_messages_to_compress": 4,
+    "recent_messages_to_keep": 2,
+    "summary_message_char_limit": 600,
+    "generic_short_queries": ["继续", "接着", "然后", "好的", "ok", "yes", "嗯", "好"],
+    "bm25_k1": 1.2,
+    "bm25_b": 0.75,
+    "buffer_max_tokens": 3000,
+    "max_summaries": 20
+  }
+}

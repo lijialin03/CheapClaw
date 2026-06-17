@@ -2,6 +2,7 @@
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from .config import AgentConfig
 from .file_transport import PromptTransport
 from .memory import Memory
 from .prompt_loader import render_prompt
@@ -11,7 +12,6 @@ from utils.text_helpers import markdown_to_plain
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-ROUTER_SENTINEL_REPLIES = {"chat", "none", "no", "terminal", "tool", "tools", "yes"}
 
 
 class Agent:
@@ -22,21 +22,30 @@ class Agent:
         client: Any,
         memory: Memory,
         workspace: Any = None,
-        max_text_chars: int = 3500,
-        upload_dir: str | Path = None,
-        file_transport_enabled: bool = True,
-        tool_orchestration_enabled: bool = True,
-        max_tool_steps: int = 5,
+        config: AgentConfig | None = None,
+        max_text_chars: int | None = None,
+        upload_dir: str | Path | None = None,
+        file_transport_enabled: bool | None = None,
+        tool_orchestration_enabled: bool | None = None,
+        max_tool_steps: int | None = None,
         tool_runner: ReadonlyToolCommandRunner | None = None,
     ):
+        config = config or AgentConfig()
         self.client = client
         self.memory = memory
         self.workspace = workspace
-        self.max_text_chars = max_text_chars
-        self.upload_dir = Path(upload_dir) if upload_dir else PROJECT_ROOT / ".cheapclaw" / "uploads"
-        self.file_transport_enabled = file_transport_enabled
-        self.tool_orchestration_enabled = tool_orchestration_enabled
-        self.max_tool_steps = max(1, int(max_tool_steps))
+        self.max_text_chars = config.max_text_chars if max_text_chars is None else max_text_chars
+        resolved_upload_dir = upload_dir if upload_dir is not None else config.upload_dir
+        self.upload_dir = Path(resolved_upload_dir) if resolved_upload_dir else PROJECT_ROOT / ".cheapclaw" / "uploads"
+        self.file_transport_enabled = (
+            config.file_transport_enabled if file_transport_enabled is None else file_transport_enabled
+        )
+        self.tool_orchestration_enabled = (
+            config.tool_orchestration_enabled if tool_orchestration_enabled is None else tool_orchestration_enabled
+        )
+        resolved_max_tool_steps = config.max_tool_steps if max_tool_steps is None else max_tool_steps
+        self.max_tool_steps = max(1, int(resolved_max_tool_steps))
+        self.tool_config = config.tools
         self.tool_runner = self._build_tool_runner(tool_runner)
         self.transport = self._build_transport()
         self.tool_orchestrator = self._build_tool_orchestrator()
@@ -48,7 +57,7 @@ class Agent:
             return tool_runner
         if self.workspace is None:
             return None
-        return ReadonlyToolCommandRunner(self.workspace)
+        return ReadonlyToolCommandRunner(self.workspace, config=self.tool_config)
 
     def _build_transport(self) -> PromptTransport:
         return PromptTransport(
@@ -67,6 +76,7 @@ class Agent:
             tool_runner=self.tool_runner,
             max_tool_steps=self.max_tool_steps,
             emit_event=self._emit_event,
+            config=self.tool_config,
         )
 
     def start(self) -> None:
@@ -158,7 +168,7 @@ class Agent:
         return self.tool_orchestration_enabled and self.workspace is not None and self.tool_orchestrator is not None
 
     def _is_router_sentinel_reply(self, assistant_reply: str) -> bool:
-        return assistant_reply.strip().lower() in ROUTER_SENTINEL_REPLIES
+        return assistant_reply.strip().lower() in self.tool_config.router_sentinel_replies
 
     def _emit_event(self, event_callback: Optional[Callable[[dict], None]], event: dict) -> None:
         if event_callback:

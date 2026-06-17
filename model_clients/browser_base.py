@@ -1,19 +1,14 @@
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agent_core.config import BrowserConfig
 from playwright.sync_api import sync_playwright
 from utils import get_logger
 
 
-@dataclass
-class BrowserClientConfig:
-    headless: bool = False
-    timeout: int = 120000
-    user_data_dir: Path | None = None
-    storage_state_path: Path | None = None
+class BrowserClientConfig(BrowserConfig):
     browser_args: list[str] | None = None
     init_script: str | None = None
 
@@ -315,22 +310,22 @@ class BrowserModelClient:
     def __init__(
         self,
         adapter: BrowserFrontendAdapter,
-        headless: bool = False,
-        timeout: int = 120000,
+        config: BrowserConfig | None = None,
+        headless: bool | None = None,
+        timeout: int | None = None,
         logger=None,
-        user_data_dir: str = None,
-        storage_state_path: str = None,
+        user_data_dir: str | Path | None = None,
+        storage_state_path: str | Path | None = None,
     ):
-        default_storage_state_path = self.DEFAULT_STORAGE_STATE_PATH
+        base_config = config or BrowserConfig()
+        resolved_storage_state_path = storage_state_path
+        if resolved_storage_state_path is None:
+            resolved_storage_state_path = base_config.storage_state_path or self.DEFAULT_STORAGE_STATE_PATH
         config = BrowserClientConfig(
-            headless=headless,
-            timeout=timeout,
-            user_data_dir=Path(user_data_dir).expanduser().resolve() if user_data_dir else None,
-            storage_state_path=(
-                Path(storage_state_path).expanduser().resolve()
-                if storage_state_path
-                else default_storage_state_path
-            ),
+            headless=base_config.headless if headless is None else headless,
+            timeout=base_config.timeout if timeout is None else timeout,
+            user_data_dir=self._resolve_optional_path(user_data_dir or base_config.user_data_dir),
+            storage_state_path=self._resolve_optional_path(resolved_storage_state_path),
             browser_args=self.BROWSER_ARGS,
             init_script=self.INIT_SCRIPT,
         )
@@ -344,6 +339,9 @@ class BrowserModelClient:
         self.session = BrowserSession(config, self.logger)
         self.adapter.bind(self.session, config, self.logger)
         self.workflow = BrowserConversationWorkflow(self.session, self.adapter, config, self.logger)
+
+    def _resolve_optional_path(self, path: str | Path | None) -> Path | None:
+        return Path(path).expanduser().resolve() if path else None
 
     @property
     def timeout(self) -> int:

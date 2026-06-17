@@ -45,7 +45,7 @@ class TurnProgress:
 
     def render(self, finished: bool = False) -> Text:
         if not self.entries:
-            return Text("AI 正在思考...", style="bold cyan")
+            return Text()
 
         output = Text()
         for index, entry in enumerate(self.entries):
@@ -53,7 +53,7 @@ class TurnProgress:
             if index:
                 output.append("\n")
             if is_current:
-                output.append("⠋ ", style="bold cyan")
+                output.append("• ", style="bold cyan")
                 output.append(entry.message, style="bold cyan")
                 if entry.detail:
                     output.append("\n  └─ ", style="cyan")
@@ -70,16 +70,24 @@ class RichCLI:
     CODE_BLOCK_PATTERN = r'(?s)```(\w+)?\n(.*?)```'
     STRUCTURED_MARKDOWN_PATTERN = r"(?m)^(#{1,6}\s+|\s*[-*+]\s+|\s*\d+[.)]\s+|>\s+|\|.*\|\s*$)"
     PROGRESS_MESSAGES = {
-        "tool_routing": "判断是否需要读取本地信息",
-        "tool_planning": "规划本地读取步骤",
-        "file_transporting": "长内容通过文件发送",
-        "file_edit_drafting": "生成文件修改草稿",
-        "auto_compressing": "自动压缩历史记忆",
-        "auto_trimming": "整理超限工作记忆",
+        "tool_routing": "正在判断是否需要读取本地信息...",
+        "tool_planning": "正在规划本地读取步骤...",
+        "file_transporting": "正在长内容通过文件发送...",
+        "file_edit_drafting": "正在生成文件修改草稿...",
+        "auto_compressing": "正在自动压缩历史记忆...",
+        "auto_trimming": "正在整理超限工作记忆...",
     }
     PROGRESS_FORMATTERS = {
         "tool_running_command": lambda event: ("运行命令", event.get("command", "")),
         "tool_changing_dir": lambda event: ("切换目录", event.get("command", "")),
+        "auto_compressed": lambda event: (
+            "已自动压缩历史记忆",
+            f"归档 {event.get('removed', 0)} 条消息，当前 {event.get('summaries', 0)} 条摘要，剩余 {event.get('remaining', 0)} 条",
+        ),
+        "auto_trimmed": lambda event: (
+            "已整理超限工作记忆",
+            f"丢弃 {event.get('removed', 0)} 条较早消息，剩余 {event.get('remaining', 0)} 条",
+        ),
     }
 
     def __init__(self, agent: Agent, title: str = "AI 对话助手", input_label: str = "你"):
@@ -158,14 +166,15 @@ class RichCLI:
         self.console.print()
 
     def _shutdown(self) -> None:
-        self._save_readline_history()
-        self._cleanup_tool_checkpoints()
-        self.agent.close()
+        with self.console.status("[bold cyan]正在保存记忆并退出...[/bold cyan]"):
+            self._save_readline_history()
+            self._cleanup_tool_checkpoints()
+            self.agent.close()
 
     def _build_status_event_handler(self, live: Live, progress: TurnProgress):
         def update(event: dict) -> None:
             if progress.add(self._progress_entry_for_event(event)):
-                live.update(progress.render())
+                live.update(progress.render(), refresh=True)
 
         return update
 
@@ -192,16 +201,8 @@ class RichCLI:
 
     def _display_memory_events(self, events: list[dict]) -> None:
         for event in events:
-            if event.get("type") == "auto_compressed":
-                self.console.print(
-                    f"[dim cyan]已自动压缩历史记忆：归档 {event['removed']} 条消息，"
-                    f"当前 {event['summaries']} 条摘要，工作记忆剩余 {event['remaining']} 条。[/dim cyan]"
-                )
-            elif event.get("type") == "auto_trimmed":
-                self.console.print(
-                    f"[dim yellow]工作记忆超限，已自动丢弃 {event['removed']} 条较早消息，"
-                    f"剩余 {event['remaining']} 条。[/dim yellow]"
-                )
+            if event.get("type") not in {"auto_compressed", "auto_trimmed"}:
+                continue
 
     def _display_ai_response(self, text: str) -> None:
         """
@@ -210,10 +211,11 @@ class RichCLI:
         - 代码块用 rich.syntax 高亮，去除行号
         - 支持多个代码块，保持原文顺序
         """
-        if self._display_structured_response(text):
+        restored = restore_rendered_code_blocks(text)
+        if self._display_structured_response(text) or self._display_structured_response(restored):
             return
 
-        cleaned = remove_line_numbers_keep_markdown(restore_rendered_code_blocks(text))
+        cleaned = remove_line_numbers_keep_markdown(restored)
         last_end = 0
 
         for match in re.finditer(self.CODE_BLOCK_PATTERN, cleaned):

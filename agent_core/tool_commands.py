@@ -16,17 +16,13 @@ from typing import Iterable
 
 from utils.text_helpers import first_nonempty_line, strip_code_fence, truncate_text_fields
 
+from .config import ToolConfig
 from .workspace import Workspace, WorkspaceError
 
 
 COMMAND_NAME_PATTERN = re.compile(r"[A-Za-z0-9._+-]+")
-DEFAULT_BLACKLIST = frozenset({"rm"})
-DEFAULT_WHITELIST = frozenset({"ls", "cd", "cat"})
 DEFAULT_BUILTINS = frozenset({"file", "checkpoint"})
 DEFAULT_SHELL_OPERATORS = frozenset({"|", "||", "&", "&&", ";", ">", ">>", "<", "<<", "<<<"})
-OBSERVATION_TEXT_LIMIT = 8000
-MAX_FILE_EDIT_BYTES = 1_000_000
-CHECKPOINT_KEEP_LIMIT = 20
 
 
 class ToolCommandError(ValueError):
@@ -44,13 +40,14 @@ class TerminalCommandPolicy:
 
     def __init__(
         self,
-        blacklist: Iterable[str] = DEFAULT_BLACKLIST,
-        whitelist: Iterable[str] = DEFAULT_WHITELIST,
+        blacklist: Iterable[str] | None = None,
+        whitelist: Iterable[str] | None = None,
         builtins: Iterable[str] = DEFAULT_BUILTINS,
         shell_operators: Iterable[str] = DEFAULT_SHELL_OPERATORS,
     ):
-        self.blacklist = frozenset(blacklist)
-        self.whitelist = frozenset(whitelist)
+        defaults = ToolConfig()
+        self.blacklist = frozenset(defaults.command_blacklist if blacklist is None else blacklist)
+        self.whitelist = frozenset(defaults.command_whitelist if whitelist is None else whitelist)
         self.builtins = frozenset(builtins)
         self.shell_operators = frozenset(shell_operators)
 
@@ -168,22 +165,20 @@ class TerminalCommandPolicy:
 class ControlledTerminalRunner:
     """受控终端执行层：维护 cwd，并执行经策略校验后的终端命令。"""
 
-    BLACKLIST = set(DEFAULT_BLACKLIST)
-    WHITELIST = set(DEFAULT_WHITELIST)
-    SHELL_OPERATORS = set(DEFAULT_SHELL_OPERATORS)
-
     def __init__(
         self,
         workspace: Workspace,
         cwd: str | Path | None = None,
+        config: ToolConfig | None = None,
         policy: TerminalCommandPolicy | None = None,
     ):
         self.workspace = workspace
         self.cwd = workspace.resolve(str(cwd or "."))
+        self.config = config or ToolConfig()
         self.policy = policy or TerminalCommandPolicy(
-            blacklist=self.BLACKLIST,
-            whitelist=self.WHITELIST,
-            shell_operators=self.SHELL_OPERATORS,
+            blacklist=self.config.command_blacklist,
+            whitelist=self.config.command_whitelist,
+            shell_operators=DEFAULT_SHELL_OPERATORS,
         )
         self.session_id = uuid.uuid4().hex[:8]
         self.checkpoint_root = self.workspace.root / ".cheapclaw" / "checkpoints" / self.session_id
@@ -239,7 +234,7 @@ class ControlledTerminalRunner:
             }
 
     def truncate_observation(self, observation: dict) -> dict:
-        return truncate_text_fields(observation, ("stdout", "stderr"), OBSERVATION_TEXT_LIMIT)
+        return truncate_text_fields(observation, ("stdout", "stderr"), self.config.observation_text_limit)
 
     def _execute_cd(self, command: TerminalCommand) -> dict:
         if len(command.argv) > 2:
@@ -266,7 +261,7 @@ class ControlledTerminalRunner:
             cwd=str(self.cwd),
             text=True,
             capture_output=True,
-            timeout=10,
+            timeout=self.config.subprocess_timeout_seconds,
             shell=False,
         )
         return {
@@ -286,8 +281,8 @@ class ControlledTerminalRunner:
         if target.exists() and not target.is_file():
             raise WorkspaceError(f"不是普通文件: {terminal_command.argv[2]}")
         encoded = content.encode("utf-8")
-        if len(encoded) > MAX_FILE_EDIT_BYTES:
-            raise ToolCommandError(f"写入内容超过限制: {MAX_FILE_EDIT_BYTES} bytes")
+        if len(encoded) > self.config.max_file_edit_bytes:
+            raise ToolCommandError(f"写入内容超过限制: {self.config.max_file_edit_bytes} bytes")
         old_text = target.read_text(encoding="utf-8") if target.exists() else ""
         target_state = self._file_state(target)
         diff = "".join(
@@ -443,7 +438,7 @@ class ControlledTerminalRunner:
             key=lambda path: path.stat().st_mtime,
             reverse=True,
         )
-        for stale in checkpoint_dirs[CHECKPOINT_KEEP_LIMIT:]:
+        for stale in checkpoint_dirs[self.config.checkpoint_keep_limit:]:
             shutil.rmtree(stale, ignore_errors=True)
 
     def _resolve_from_cwd(self, path: str) -> Path:

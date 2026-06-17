@@ -1,6 +1,8 @@
 # qwen.py
 from pathlib import Path
 
+from agent_core.config import BrowserConfig
+
 from .assets import load_asset_text
 from .browser_base import BrowserFrontendAdapter, BrowserModelClient
 
@@ -287,7 +289,15 @@ class QwenClient(BrowserModelClient):
     DISPLAY_NAME = "Qwen"
     DEFAULT_STORAGE_STATE_PATH = STORAGE_STATE_PATH
 
-    def __init__(self, headless: bool = False, timeout: int = 120000, logger=None, user_data_dir: str = None, storage_state_path: str = None):
+    def __init__(
+        self,
+        config: BrowserConfig | None = None,
+        headless: bool | None = None,
+        timeout: int | None = None,
+        logger=None,
+        user_data_dir: str | Path | None = None,
+        storage_state_path: str | Path | None = None,
+    ):
         """
         初始化客户端。
         :param headless: 是否无头模式
@@ -297,6 +307,7 @@ class QwenClient(BrowserModelClient):
         """
         super().__init__(
             adapter=QwenAdapter(),
+            config=config,
             headless=headless,
             timeout=timeout,
             logger=logger,

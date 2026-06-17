@@ -32,38 +32,161 @@ def get_code(text: str) -> str | None:
 
 
 def parse_structured_response(text: str) -> dict | None:
+    data, _reason, _raw = diagnose_structured_response(text)
+    return data
+
+
+def diagnose_structured_response(text: str) -> tuple[dict | None, str, str]:
     raw = extract_json_response_text(text)
     if not raw:
-        return None
+        return None, "no_json_candidate", ""
     try:
         data = json.loads(raw)
-    except json.JSONDecodeError:
-        return None
+    except json.JSONDecodeError as exc:
+        repaired = _escape_control_chars_in_json_strings(raw)
+        if repaired != raw:
+            try:
+                data = json.loads(repaired)
+                raw = repaired
+            except json.JSONDecodeError:
+                data = _parse_rendered_structured_response(raw)
+                if data is None:
+                    return None, f"json_decode_error:{exc.msg}:line={exc.lineno}:col={exc.colno}", raw
+        else:
+            data = _parse_rendered_structured_response(raw)
+            if data is None:
+                return None, f"json_decode_error:{exc.msg}:line={exc.lineno}:col={exc.colno}", raw
     parts = data.get("parts") if isinstance(data, dict) else None
     if not isinstance(parts, list) or not parts:
-        return None
+        return None, "invalid_schema:parts", raw
 
     normalized_parts = []
     for part in parts:
         if not isinstance(part, dict):
-            return None
+            return None, "invalid_schema:part_not_object", raw
         part_type = part.get("type")
         if part_type not in {"text", "code"}:
-            return None
+            return None, f"invalid_schema:part_type:{part_type}", raw
         content = part.get("content")
         if not isinstance(content, str):
+            return None, "invalid_schema:content_not_string", raw
+        normalized_part = {"type": part_type, "content": content}
+        if part_type == "code" and isinstance(part.get("language"), str):
+            normalized_part["language"] = part["language"]
+        normalized_parts.append(normalized_part)
+    return {"parts": normalized_parts}, "ok", raw
+
+
+def _parse_rendered_structured_response(text: str) -> dict | None:
+    if '"parts"' not in text:
+        return None
+    parts: list[dict] = []
+    for match in re.finditer(r'"type"\s*:\s*"(text|code)"', text):
+        part_type = match.group(1)
+        content_match = re.search(r'"content"\s*:\s*"', text[match.end():])
+        if not content_match:
             return None
-        normalized_parts.append(part)
-    return {"parts": normalized_parts}
+        content_start = match.end() + content_match.end()
+        next_part = re.search(r'\n\s*}\s*,\s*\n\s*\{\s*\n\s*"type"\s*:', text[content_start:])
+        final_part = re.search(r'\n\s*}\s*\n\s*]\s*\n\s*}\s*$', text[content_start:])
+        if next_part:
+            content_end = content_start + next_part.start()
+        elif final_part:
+            content_end = content_start + final_part.start()
+        else:
+            return None
+        content = _decode_rendered_json_string_content(text[content_start:content_end])
+        part = {"type": part_type, "content": content}
+        if part_type == "code":
+            language_match = re.search(r'"language"\s*:\s*"([^"\n\r]*)"', text[match.end():content_start])
+            if language_match:
+                part["language"] = language_match.group(1)
+        parts.append(part)
+    return {"parts": parts} if parts else None
+
+
+def _decode_rendered_json_string_content(text: str) -> str:
+    content = text
+    if content.endswith('"'):
+        content = content[:-1]
+    try:
+        return json.loads(f'"{_escape_control_chars_in_json_strings(content)}"')
+    except json.JSONDecodeError:
+        return content.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
+
+
+def _escape_control_chars_in_json_strings(text: str) -> str:
+    result: list[str] = []
+    in_string = False
+    escaped = False
+    changed = False
+    for char in text:
+        if in_string:
+            if escaped:
+                result.append(char)
+                escaped = False
+            elif char == "\\":
+                result.append(char)
+                escaped = True
+            elif char == '"':
+                result.append(char)
+                in_string = False
+            elif char == "\n":
+                result.append("\\n")
+                changed = True
+            elif char == "\r":
+                result.append("\\r")
+                changed = True
+            elif char == "\t":
+                result.append("\\t")
+                changed = True
+            else:
+                result.append(char)
+            continue
+
+        result.append(char)
+        if char == '"':
+            in_string = True
+    return "".join(result) if changed else text
 
 
 def extract_json_response_text(text: str) -> str:
     stripped = text.strip()
     if stripped.startswith("{"):
         return stripped
-    match = re.fullmatch(r"(?s)```(?:json)?\n(.*?)\n```", stripped)
+    match = re.fullmatch(r"(?is)```\s*(?:json)?\s*\n(.*?)\n```", stripped)
     if match:
         return match.group(1).strip()
+    return _extract_first_json_object(stripped)
+
+
+def _extract_first_json_object(text: str) -> str:
+    start = text.find("{")
+    if start == -1:
+        return ""
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
     return ""
 
 
