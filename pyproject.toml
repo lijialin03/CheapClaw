@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cheapclaw"
+version = "0.1.0"
+description = "Terminal client for Qwen Web powered by Playwright."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "playwright>=1.40",
+    "pydantic>=2.0",
+    "rich>=13.0",
+    "Pygments>=2.15",
+]
+
+[project.scripts]
+cheapclaw = "run:main"
+cheapclaw-export-qwen-state = "scripts.export_qwen_state:main"
+
+[tool.setuptools]
+py-modules = ["run", "cheapclaw"]
+packages = ["agent_core", "model_clients", "ui", "utils", "scripts"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+agent_core = ["prompts/*.md"]
+model_clients = ["assets/qwen/scripts/*.js"]

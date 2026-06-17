@@ -71,7 +71,7 @@ class TerminalCommandPolicy:
             "checkpoint list",
             "checkpoint restore ckpt-example",
         ])
-        examples.append("final: 当前目录包含 main.py、agent_core、llm、ui 等。")
+        examples.append("final: 当前目录包含 run.py、agent_core、model_clients、ui 等。")
         return examples
 
     def validate_action(self, data: dict) -> dict:

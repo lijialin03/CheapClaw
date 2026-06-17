@@ -6,9 +6,7 @@ from agent_core.config import BrowserConfig
 from .assets import load_asset_text
 from .browser_base import BrowserFrontendAdapter, BrowserModelClient
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CONFIG_DIR = PROJECT_ROOT / "config"
-STORAGE_STATE_PATH = CONFIG_DIR / "storage_state.json"
+STORAGE_STATE_PATH = Path.cwd() / "config" / "storage_state.json"
 
 BROWSER_ARGS = [
     "--disable-blink-features=AutomationControlled",
@@ -19,6 +17,15 @@ class QwenAdapter(BrowserFrontendAdapter):
     """Qwen-specific DOM selectors and browser interactions."""
     def default_url(self) -> str:
         return "https://chat.qwen.ai/"
+
+    def login_state_guidance(self, storage_state_path: str) -> str:
+        return (
+            "有图形界面时，在项目根目录运行 `python scripts/export_qwen_state.py`，"
+            "按浏览器提示完成 Qwen 登录，脚本会导出 storage_state.json。"
+            "如果当前机器没有图形界面，请在本地电脑运行同一脚本，"
+            f"再把生成的 storage_state.json 上传到开发机的 {storage_state_path}。"
+            "导出脚本支持密码、GitHub、二维码等网页登录方式。"
+        )
 
     def wait_until_ready(self) -> None:
         self.page.wait_for_selector(".message-input-textarea", timeout=self.config.timeout)
@@ -280,7 +287,7 @@ class QwenAdapter(BrowserFrontendAdapter):
 
 class QwenClient(BrowserModelClient):
     """
-    通义千问网页版自动化客户端（基于持久化会话）。
+    Qwen网页版自动化客户端（基于持久化会话）。
     首次使用时需手动登录一次保存状态，后续自动复用。
     """
 
@@ -295,14 +302,12 @@ class QwenClient(BrowserModelClient):
         headless: bool | None = None,
         timeout: int | None = None,
         logger=None,
-        user_data_dir: str | Path | None = None,
         storage_state_path: str | Path | None = None,
     ):
         """
         初始化客户端。
         :param headless: 是否无头模式
         :param timeout: 默认超时时间（毫秒）
-        :param user_data_dir: Playwright 持久化用户数据目录，适合在有界面机器上完成登录
         :param storage_state_path: 可迁移登录态 JSON，适合复制到无界面开发机复用
         """
         super().__init__(
@@ -311,7 +316,6 @@ class QwenClient(BrowserModelClient):
             headless=headless,
             timeout=timeout,
             logger=logger,
-            user_data_dir=user_data_dir,
             storage_state_path=storage_state_path,
         )
 

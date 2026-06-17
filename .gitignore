@@ -209,6 +209,13 @@ tempCodeRunnerFile.py
 # PyPI configuration file
 .pypirc
 
+# CheapClaw local runtime state and credentials
+.cheapclaw/
+debug/
+config/storage_state*.json
+config/qwen_login_profile/
+config/qwen_logged_in*/
+
 # Marimo
 marimo/_static/
 marimo/_lsp/

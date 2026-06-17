@@ -121,8 +121,20 @@ class RichCLI:
                 self.agent.close()
                 return False
 
+        self._display_startup_notices()
         self.console.print(self.HELP_TEXT)
         return True
+
+    def _display_startup_notices(self) -> None:
+        for notice in self.agent.consume_notices():
+            message = str(notice.get("message") or "").strip()
+            if not message:
+                continue
+            level = notice.get("level") or "info"
+            if level == "warning":
+                self.console.print(Panel(message, title="⚠️  登录状态警告", style="red", border_style="red"))
+            else:
+                self.console.print(Panel(message, title="💡 注意", style="cyan", border_style="cyan"))
 
     def _run_input_loop(self) -> None:
         while True:
@@ -269,6 +281,11 @@ class RichCLI:
 
     def _save_readline_history(self) -> None:
         readline.write_history_file(self.HISTORY_FILE)
+        with open(self.HISTORY_FILE, "r+", encoding="utf-8") as file:
+            lines = file.readlines()[-readline.get_history_length():]
+            file.seek(0)
+            file.truncate()
+            file.writelines(lines)
 
     def _cleanup_tool_checkpoints(self) -> None:
         tool_orchestrator = getattr(self.agent, "tool_orchestrator", None)

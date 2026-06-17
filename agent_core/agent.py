@@ -104,6 +104,12 @@ class Agent:
     def consume_events(self) -> list[dict]:
         return self.memory.consume_events()
 
+    def consume_notices(self) -> list[dict[str, str]]:
+        consume = getattr(self.client, "consume_notices", None)
+        if callable(consume):
+            return consume()
+        return []
+
     def compress_memory(self) -> dict:
         """手动压缩历史记忆，返回 UI 可展示的结构化状态。"""
         msg_count = len(self.memory.buffer.messages)

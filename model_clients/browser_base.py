@@ -65,6 +65,12 @@ class BrowserFrontendAdapter(ABC):
     def before_file_send(self, file_path: Path, prompt: str = None):
         return None
 
+    def login_state_guidance(self, storage_state_path: str) -> str:
+        return (
+            f"请在有图形界面的机器登录目标站点，并导出 Playwright storage_state 到 {storage_state_path}。"
+            "如果当前机器没有图形界面，请在本地电脑导出后上传该文件。"
+        )
+
     def try_handle_reply_preference_ui(self) -> str:
         return ""
 
@@ -88,36 +94,23 @@ class BrowserSession:
         self.browser = None
         self.context = None
         self.page = None
+        self.notices: list[dict[str, str]] = []
 
     def start(self, url: str, adapter: BrowserFrontendAdapter) -> None:
         self.playwright = sync_playwright().start()
         storage_state_path = self.resolve_storage_state_path()
         browser_args = self.config.browser_args or []
 
-        if self.config.user_data_dir:
-            self.config.user_data_dir.mkdir(parents=True, exist_ok=True)
-            self.logger.info(f"使用持久化用户数据目录: {self.config.user_data_dir}")
-            self.context = self.playwright.chromium.launch_persistent_context(
-                user_data_dir=str(self.config.user_data_dir),
-                headless=self.config.headless,
-                args=browser_args,
-            )
-            self.browser = self.context
-            self.logger.info("已加载持久化用户数据目录。")
-        elif storage_state_path:
-            self.browser = self.playwright.chromium.launch(
-                headless=self.config.headless,
-                args=browser_args,
-            )
+        self.browser = self.playwright.chromium.launch(
+            headless=self.config.headless,
+            args=browser_args,
+        )
+        if storage_state_path:
             self.context = self.browser.new_context(storage_state=str(storage_state_path))
             self.logger.info(f"已加载 storage_state 登录状态: {storage_state_path}")
         else:
-            self.browser = self.playwright.chromium.launch(
-                headless=self.config.headless,
-                args=browser_args,
-            )
             self.context = self.browser.new_context()
-            self.logger.info("未找到登录状态，以未登录模式启动。")
+            self.logger.warning(self._missing_login_state_message(adapter, reason="未找到登录态文件"))
 
         self.page = self.context.new_page()
         if self.config.init_script:
@@ -125,20 +118,23 @@ class BrowserSession:
         self.logger.attach_page(self.page)
         self.logger.info("Starting browser...")
         self.page.goto(url, wait_until="domcontentloaded", timeout=self.config.timeout)
+        self._add_notice("info", "当前处于测试版，不太稳定，遇到错误回答时请首先尝试重新提问，或退出并重启session")
 
-        if not adapter.is_logged_in():
-            if self.config.headless:
-                raise RuntimeError(
-                    f"当前是 headless 模式且未登录。请先在有界面机器导出 {self.config.storage_state_path} 后复制到开发机。"
-                )
-            self.logger.warning("登录状态已过期或未登录，请在浏览器窗口中手动登录...")
-            self.wait_for_login(adapter)
-            self.save_storage_state()
-            self.logger.info("检测到登录成功并保存登录状态")
+        logged_in = adapter.is_logged_in()
+        if not logged_in:
+            self._add_notice("warning", self._missing_login_state_message(adapter, reason="未检测到有效登录态"))
+            if not self.config.headless:
+                self.wait_for_login(adapter)
+                self.save_storage_state()
+                self.logger.info("检测到登录成功并保存登录状态")
+                logged_in = True
 
-        adapter.wait_until_ready()
-        adapter.after_page_loaded()
-        self.logger.debug("Page loaded")
+        if logged_in:
+            adapter.wait_until_ready()
+            adapter.after_page_loaded()
+            self.logger.debug("Page loaded")
+        else:
+            self.logger.warning("未登录 fallback 模式已启动，后续模型交互可能无法正常工作。")
 
     def close(self) -> None:
         if self.context:
@@ -154,6 +150,33 @@ class BrowserSession:
         if storage_state_path and storage_state_path.exists():
             return storage_state_path
         return None
+
+    def consume_notices(self) -> list[dict[str, str]]:
+        notices = self.notices
+        self.notices = []
+        return notices
+
+    def _add_notice(self, level: str, message: str) -> None:
+        notice = {"level": level, "message": message}
+        if notice not in self.notices:
+            self.notices.append(notice)
+        if level == "warning":
+            self.logger.warning(message)
+        else:
+            self.logger.info(message)
+
+    def _storage_state_path_text(self) -> str:
+        storage_state_path = self.config.storage_state_path
+        return str(storage_state_path) if storage_state_path else "config/storage_state.json"
+
+    def _missing_login_state_message(self, adapter: BrowserFrontendAdapter, reason: str) -> str:
+        storage_state_path = self._storage_state_path_text()
+        return (
+            f"{reason}，将以未登录模式启动。\n"
+            "注意：该模式可能无法正常使用模型！\n"
+            f"请获取登录态并保存为 {storage_state_path}。\n"
+            f"{adapter.login_state_guidance(storage_state_path)}"
+        )
 
     def save_storage_state(self) -> None:
         storage_state_path = self.config.storage_state_path
@@ -314,7 +337,6 @@ class BrowserModelClient:
         headless: bool | None = None,
         timeout: int | None = None,
         logger=None,
-        user_data_dir: str | Path | None = None,
         storage_state_path: str | Path | None = None,
     ):
         base_config = config or BrowserConfig()
@@ -324,7 +346,6 @@ class BrowserModelClient:
         config = BrowserClientConfig(
             headless=base_config.headless if headless is None else headless,
             timeout=base_config.timeout if timeout is None else timeout,
-            user_data_dir=self._resolve_optional_path(user_data_dir or base_config.user_data_dir),
             storage_state_path=self._resolve_optional_path(resolved_storage_state_path),
             browser_args=self.BROWSER_ARGS,
             init_script=self.INIT_SCRIPT,
@@ -349,6 +370,9 @@ class BrowserModelClient:
 
     def start(self, url: str = None):
         self.session.start(url or self.adapter.default_url(), self.adapter)
+
+    def consume_notices(self) -> list[dict[str, str]]:
+        return self.session.consume_notices()
 
     def close(self):
         self.session.close()

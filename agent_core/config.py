@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "default_config.json"
+DEFAULT_WORKSPACE_CONFIG_PATH = Path.cwd() / "config" / "default_config.json"
 
 
 class ToolConfig(BaseModel):
@@ -27,7 +28,7 @@ class ToolConfig(BaseModel):
         "review", "analyze", "read", "show", "list", "stat",
     )
     workspace_targets: tuple[str, ...] = (
-        "目录", "文件", "路径", "当前目录", "workspace", "main.py", ".py", ".json",
+        "目录", "文件", "路径", "当前目录", "workspace", "run.py", ".py", ".json",
         ".md", ".txt", "/", "./", "agent_core", "ui", "model_clients", "config",
     )
     tool_step_limit_message: str = "已达到终端命令调用步数上限，无法继续读取更多信息。"
@@ -73,7 +74,6 @@ class BrowserConfig(BaseModel):
 
     headless: bool = False
     timeout: int = Field(default=120000, gt=0)
-    user_data_dir: Path | None = None
     storage_state_path: Path | None = None
 
 
@@ -111,12 +111,16 @@ class AppConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     agent: AgentConfig = AgentConfig()
-    browser: BrowserConfig = BrowserConfig()
-    memory: MemoryConfig
+    browser: BrowserConfig = BrowserConfig(headless=True)
+    memory: MemoryConfig = MemoryConfig()
 
 
 def load_config(path: str | Path | None = None) -> AppConfig:
-    config_path = Path(path) if path is not None else DEFAULT_CONFIG_PATH
+    config_path = Path(path) if path is not None else DEFAULT_WORKSPACE_CONFIG_PATH
+    if not config_path.exists() and path is None:
+        config_path = DEFAULT_CONFIG_PATH
+    if not config_path.exists():
+        return AppConfig()
     with open(config_path, "r", encoding="utf-8") as file:
         data = json.load(file)
     return AppConfig.model_validate(data)

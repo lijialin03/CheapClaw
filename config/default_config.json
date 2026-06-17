@@ -18,7 +18,7 @@
       "tool_router_negative_replies": ["chat", "none", "no"],
       "router_sentinel_replies": ["chat", "none", "no", "terminal", "tool", "tools", "yes"],
       "workspace_read_verbs": ["读取", "读", "查看", "检查", "列出", "看看", "打开", "分析", "总结", "review", "analyze", "read", "show", "list", "stat"],
-      "workspace_targets": ["目录", "文件", "路径", "当前目录", "workspace", "main.py", ".py", ".json", ".md", ".txt", "/", "./", "agent_core", "ui", "model_clients", "config"],
+      "workspace_targets": ["目录", "文件", "路径", "当前目录", "workspace", "run.py", ".py", ".json", ".md", ".txt", "/", "./", "agent_core", "ui", "model_clients", "config"],
       "tool_step_limit_message": "已达到终端命令调用步数上限，无法继续读取更多信息。",
       "file_edit_diff_preview_chars": 3000
     }
@@ -26,7 +26,6 @@
   "browser": {
     "headless": true,
     "timeout": 120000,
-    "user_data_dir": null,
     "storage_state_path": null
   },
   "memory": {

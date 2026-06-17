@@ -1,119 +1,142 @@
-# CheapClaw
+# 薅羊毛Claw
 
-基于 Playwright 的[通义千问](https://chat.qwen.ai/)网页版终端客户端。通过自动化浏览器模拟用户交互，无需 API Key 即可在终端中使用千问。
+你还在为 token 额度见底而烦恼吗？你还在为昂贵的上下文费用默默流泪吗？你的每个需求真的都需要仓库级智能体全量出击吗？薅羊毛Claw 给你一种更“精打细算”的选择：用 Playwright 复用网页模型登录态，把终端对话、工作区读取和受控文件修改搬进命令行；该你拍板的地方拍板，该 Web 端出力的地方出力，能多薅一根羊毛，就绝不多烧一点 token。
+
+> **More Artificial, Less Intelligence; More Savings Grow, Less Tokens Flow.**
+
+| 正常薅羊毛 | 偶尔也会失手 |
+| --- | --- |
+| <img src="docs/images/running-state.png" alt="薅羊毛Claw 正常运行状态"> | <img src="docs/images/error-state.png" alt="薅羊毛Claw 错误运行状态"> |
+
+**在这里你可以：** 在没有 API Key 时和网页模型在终端里对话；读取当前工作区；做轻量代码分析、总结和定位；准备小修小补的文件修改。
+
+**但臣妾做不到：** 专业代码 Agent 的完全替代品，也不适合大规模无人值守改仓库、依赖稳定 API SLA 的生产流程，或处理敏感凭据和私密数据。
+
+## 环境要求
+
+- Python `>=3.10`
+- Chromium / Playwright 浏览器运行环境
+- 一个可用的 Qwen 网页账号登录态
+
+推荐使用虚拟环境：
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+## 安装
+
+开发模式安装：
+
+```bash
+pip install -e .
+playwright install chromium
+```
+
+或者直接安装依赖后运行源码：
+
+```bash
+pip install -r requirements.txt
+playwright install chromium
+```
+
+## 准备登录态
+
+CheapClaw 默认读取 `config/storage_state.json`。该文件包含网页登录凭据，请勿提交或分享。
+
+有图形界面的机器上：
+
+```bash
+cheapclaw-export-qwen-state
+```
+
+未安装为 CLI 时也可以运行：
+
+```bash
+python scripts/export_qwen_state.py
+```
+
+脚本会打开浏览器。你可以用密码、GitHub、二维码等任意 Qwen 网页登录方式完成登录；成功后会导出 `config/storage_state.json`。
+
+如果开发机没有图形界面，请在本地电脑导出 `storage_state.json`，再上传到开发机项目的 `config/` 目录。
 
 ## 快速开始
 
+安装为 CLI 后：
+
 ```bash
-pip install -r requirements.txt   # 需要 playwright、rich 等依赖
-playwright install chromium        # 安装 Playwright 浏览器
-
-python main.py                     # 启动对话
+cheapclaw
 ```
 
-首次启动会自动打开浏览器，在浏览器中登录千问后，登录状态会被持久化，后续自动复用。
+源码方式：
 
-## 项目结构
-
-```
-CheapClaw/
-├── main.py                 # 入口：组装各组件并启动 UI
-├── llm/
-│   └── qwen.py             # QwenClient — Playwright 浏览器自动化
-├── bot/
-│   ├── memory.py           # 分层对话记忆系统（三级架构）
-│   └── assembler.py        # Prompt 组装器
-├── ui/
-│   └── rich_cli.py         # 终端 UI（基于 rich 库）
-├── utils/
-│   ├── log.py              # 日志 + 截图工具
-│   └── processor.py        # 文本清理（去行号、Markdown 转纯文本）
-└── config/
-    └── qwen_logged_in/     # 持久化浏览器用户数据（登录态）
+```bash
+python run.py
 ```
 
-## 架构
+常用参数：
 
-整个系统分四层：
+```bash
+cheapclaw --headed                 # 有头浏览器，便于观察登录或前端交互
+cheapclaw --workspace-root /path/to/project
+cheapclaw --storage-state /path/to/storage_state.json
+cheapclaw --config /path/to/default_config.json
+```
 
-### 1. 浏览器自动化层 (`llm/qwen.py`)
+如果登录态缺失或失效，CheapClaw 会在 UI 中给出醒目提示，并以未登录模式 fallback；但该模式很可能无法正常完成模型交互。
 
-`QwenClient` 使用 Playwright 控制 Chromium 浏览器，通过 CSS 选择器定位页面元素来模拟交互：
+## 内置命令
 
-- **登录机制**：启动时加载持久化的 Chrome 用户数据目录（`config/qwen_logged_in`），自动复用之前的登录 session
-- **登录检测**：导航后检查 URL 是否被重定向到登录页 + 确认聊天输入框存在；若 session 过期则等待用户在浏览器中手动登录
-- **消息发送**：`send_text()` 填入输入框 → 移除 `maxlength` 限制 → 点击发送 → 轮询等待回复完成
-- **回复等待**：`wait_for_reply()` 轮询检测操作容器 `.message-hoc-container` 出现，同时自动关闭弹窗
-- **文件上传**：`send_file()` 定位文件上传 input → 上传文件 → 等待解析 → 点击发送
+在对话界面输入：
 
-### 2. 记忆层 (`bot/memory.py`)
-
-三级分层记忆架构：
-
-| 层级 | 组件 | 职责 | 容量 |
-|------|------|------|------|
-| Level 1 | `ConversationBuffer` | 最近对话完整保留 | ~3000 tokens（可配） |
-| Level 2 | `MemoryCompressor` | 历史对话 LLM 摘要 | 最多 5 条摘要 |
-| Level 3 | `KeyInfoStore` | 用户偏好/决策 key-value | 无限制 |
-
-- 每次添加消息后自动检查 Level 1 是否超过阈值（80%）
-- 超过时优先调用 LLM 将最早的消息对压缩为摘要（Level 2）
-- 若 LLM 不可用或压缩后仍超限，丢弃最旧消息对兜底
-- `get_context()` 按优先级组装：关键信息 → 历史摘要 → 最近对话
-- 各级数据统一持久化到 `memory.json`
-
-### 3. 组装层 (`bot/assembler.py`)
-
-`Assembler` 将系统设定 + 记忆上下文 + 用户当前输入拼成一段文本，作为发给千问的 prompt。
-
-### 4. UI 层 (`ui/rich_cli.py`)
-
-`RichCLI` 基于 `rich` 库，提供语法高亮、面板等终端 UI 增强。
-
-## CLI 命令
-
-在对话中输入以下命令：
-
-| 命令 | 功能 |
-|------|------|
+| 命令 | 说明 |
+| --- | --- |
+| `/help` | 查看帮助 |
 | `/clear` | 清屏 |
-| `/compress` | 手动触发记忆压缩（将最旧的对话转为 LLM 摘要） |
-| `/exit` | 退出 |
+| `/compress` | 手动压缩当前会话记忆 |
+| `/memory` | 查看记忆状态 |
+| `/exit` | 保存并退出 |
 
 ## 配置
 
-### 系统提示词
+默认会读取当前目录的 `config/default_config.json`；如果不存在，会回退到项目内置默认配置。主要配置项包括：
 
-在 `main.py` 中修改 `system_prompt` 参数来设定 AI 的角色行为。
+- `browser.headless`：是否无头运行，默认 `true`。
+- `browser.storage_state_path`：自定义登录态路径；为空时使用 Qwen 客户端默认的 `config/storage_state.json`。
+- `agent.max_text_chars`：超过该长度时启用文件发送。
+- `agent.tools.*`：受控命令白名单、确认回复、输出截断等工具策略。
+- `memory.*`：会话上下文预算和压缩阈值。
 
-### 记忆参数
+## 本地文件
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `buffer_max_tokens` | 3000 | 工作记忆 token 上限 |
-| `max_summaries` | 5 | 最多保留的摘要条数 |
+运行后会产生一些本地状态文件：
 
-### 浏览器
+- `config/storage_state.json`：网页登录态，敏感文件。
+- `.cheapclaw/`：CLI 历史、上传缓存、会话记忆归档。
+- `debug/`：日志和调试截图。
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `headless` | False | 是否无头模式 |
-| `timeout` | 120000ms | 操作超时 |
-| `user_data_dir` | `./config/qwen_logged_in` | 持久化用户数据目录 |
-
-## 日志与调试
-
-- 日志文件：`debug/{YYYYMMDD}.log`
-- 截图：`debug/screenshots/`，关键步骤自动截图（登录、发送、回复等待、关闭）
+这些文件已在 `.gitignore` 中忽略。
 
 ## 注意事项
 
-- 本工具通过 UI 自动化操作千问网页版，依赖具体的 CSS 选择器；千问前端改版可能导致需要更新选择器
-- 运行时会打开浏览器窗口（`headless=False`），不能纯后台运行
-- 压缩记忆时会在千问网页上发送一条摘要 prompt（可见但不影响正常使用）
+- 当前版本只内置 Qwen 客户端；项目结构按多模型扩展设计，但其他模型尚未接入。
+- 当前版本仍不稳定，网页状态、选择器变化、登录态过期都可能导致异常；遇到错误时可以先重启 session，或换一种问法重新提问。
+- CheapClaw 依赖网页 DOM 和交互流程；网页改版可能需要更新选择器。
+- 未登录 fallback 只保证程序不立刻退出，不保证模型交互可用。
+- 记忆压缩会通过当前网页模型生成摘要，因此可能产生一次可见的网页交互。
+- `storage_state.json` 等同于网页登录凭据，请像对待 cookie 一样保护它。
 
-## 依赖
+<details>
+<summary>版本更新记录</summary>
 
-- `playwright` — 浏览器自动化
-- `rich` — 终端 UI 增强
-- `markdown` / `beautifulsoup4` — 文本处理
+### 0.1.0
+
+- 增加 `cheapclaw` / `cheapclaw-export-qwen-state` CLI。
+- 当前仅支持 Qwen，后续计划接入更多网页模型客户端。
+- 使用 `storage_state.json` 复用登录态，登录态异常时保留未登录 fallback。
+- 加入配置文件、受控工具策略和会话记忆归档。
+- 终端显示略显潦草。
+- 早期版本偶有抽风，重启 session 或重新提问通常是很实用的民间疗法。
+
+</details>
