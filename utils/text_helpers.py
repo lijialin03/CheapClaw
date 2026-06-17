@@ -1,4 +1,5 @@
 # utils/text_helpers.py
+import json
 import re
 
 
@@ -30,11 +31,94 @@ def get_code(text: str) -> str | None:
     return None
 
 
+def parse_structured_response(text: str) -> dict | None:
+    raw = extract_json_response_text(text)
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    parts = data.get("parts") if isinstance(data, dict) else None
+    if not isinstance(parts, list) or not parts:
+        return None
+
+    normalized_parts = []
+    for part in parts:
+        if not isinstance(part, dict):
+            return None
+        part_type = part.get("type")
+        if part_type not in {"text", "code"}:
+            return None
+        content = part.get("content")
+        if not isinstance(content, str):
+            return None
+        normalized_parts.append(part)
+    return {"parts": normalized_parts}
+
+
+def extract_json_response_text(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith("{"):
+        return stripped
+    match = re.fullmatch(r"(?s)```(?:json)?\n(.*?)\n```", stripped)
+    if match:
+        return match.group(1).strip()
+    return ""
+
+
 def remove_line_numbers_keep_markdown(text: str) -> str:
     """
     仅移除每行开头的行号（如 "1 ", "2."），不删除代码块标记或其他 Markdown 语法。
     """
     return re.sub(r"^([ \t]*)\d{1,3}[ \t.、]+", r"\1", text, flags=re.MULTILINE)
+
+
+def restore_rendered_code_blocks(text: str) -> str:
+    """将网页 inner_text 中的“语言名 + 行号列 + 代码”还原为 Markdown 代码块。"""
+    lines = text.splitlines()
+    restored: list[str] = []
+    index = 0
+    languages = {"python", "py", "javascript", "typescript", "json", "markdown", "html", "css", "bash", "shell", "sh"}
+
+    while index < len(lines):
+        language = lines[index].strip().lower()
+        if language not in languages:
+            restored.append(lines[index])
+            index += 1
+            continue
+
+        number_start = index + 1
+        number_end = number_start
+        while number_end < len(lines) and lines[number_end].strip().isdigit():
+            number_end += 1
+
+        line_count = number_end - number_start
+        code_end = number_end + line_count
+        if line_count == 0 or code_end > len(lines):
+            restored.append(lines[index])
+            index += 1
+            continue
+
+        code_lines = lines[number_end:code_end]
+        if not _looks_like_rendered_code(language, code_lines):
+            restored.append(lines[index])
+            index += 1
+            continue
+
+        restored.append(f"```{language}")
+        restored.extend(code_lines)
+        restored.append("```")
+        index = code_end
+
+    return "\n".join(restored)
+
+
+def _looks_like_rendered_code(language: str, code_lines: list[str]) -> bool:
+    code = "\n".join(code_lines)
+    if language in {"python", "py"}:
+        return _looks_like_python_code(code) or any(token in code for token in ("=", "with ", "open(", "b\"", "print("))
+    return bool(re.search(r"[{}();=<>]|^\s*(const|let|var|function|import|export|class|def|if|for|while)\b", code, re.MULTILINE))
 
 
 def strip_code_fence(text: str, preserve_inner: bool = False) -> str:

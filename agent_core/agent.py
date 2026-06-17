@@ -2,15 +2,16 @@
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from .assembler import Assembler
 from .file_transport import PromptTransport
 from .memory import Memory
+from .prompt_loader import render_prompt
 from .tool_commands import ReadonlyToolCommandRunner
 from .tool_orchestrator import ToolOrchestrator
 from utils.text_helpers import markdown_to_plain
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+ROUTER_SENTINEL_REPLIES = {"chat", "none", "no", "terminal", "tool", "tools", "yes"}
 
 
 class Agent:
@@ -19,7 +20,6 @@ class Agent:
     def __init__(
         self,
         client: Any,
-        assembler: Assembler,
         memory: Memory,
         workspace: Any = None,
         max_text_chars: int = 3500,
@@ -30,7 +30,6 @@ class Agent:
         tool_runner: ReadonlyToolCommandRunner | None = None,
     ):
         self.client = client
-        self.assembler = assembler
         self.memory = memory
         self.workspace = workspace
         self.max_text_chars = max_text_chars
@@ -42,6 +41,7 @@ class Agent:
         self.transport = self._build_transport()
         self.tool_orchestrator = self._build_tool_orchestrator()
         self.logger = getattr(client, "logger", None)
+        self._closed = False
 
     def _build_tool_runner(self, tool_runner: ReadonlyToolCommandRunner | None) -> ReadonlyToolCommandRunner | None:
         if tool_runner is not None:
@@ -85,7 +85,7 @@ class Agent:
             return self._run_legacy_turn(user_input, event_callback)
 
         assistant_reply = self.tool_orchestrator.run_turn(user_input, event_callback)
-        if assistant_reply is None:
+        if assistant_reply is None or self._is_router_sentinel_reply(assistant_reply):
             return self._run_legacy_turn(user_input, event_callback)
 
         self._update_memory(user_input, assistant_reply, event_callback)
@@ -118,20 +118,47 @@ class Agent:
             "remaining": len(self.memory.buffer.messages),
         }
 
+    def memory_status(self) -> dict:
+        return self.memory.stats()
+
+    def memory_preview(self, query: str = "") -> dict:
+        return self.memory.preview_context(query=query)
+
+    def clear_session_memory(self) -> dict:
+        return self.memory.clear_session()
+
     def close(self) -> None:
-        """若底层客户端支持 close，则释放相关资源。"""
+        """先清理 session 记忆，再释放底层客户端资源。"""
+        if self._closed:
+            return
+        self._closed = True
         close = getattr(self.client, "close", None)
-        if callable(close):
-            close()
+        try:
+            self.memory.close_session()
+        finally:
+            if callable(close):
+                close()
 
     def _run_legacy_turn(self, user_input: str, event_callback: Optional[Callable[[dict], None]] = None) -> str:
-        prompt = self.assembler.assemble(user_input)
+        prompt = self._build_chat_prompt(user_input)
         assistant_reply = self.transport.send(prompt, event_callback)
         self._update_memory(user_input, assistant_reply, event_callback)
         return assistant_reply
 
+    def _build_chat_prompt(self, user_input: str) -> str:
+        memory_context = self.memory.get_context(query=user_input)
+        memory_section = f"{memory_context}\n\n" if memory_context else ""
+        return render_prompt(
+            "chat.md",
+            memory_section=memory_section,
+            user_input=user_input,
+        )
+
     def _can_use_tool_orchestration(self) -> bool:
         return self.tool_orchestration_enabled and self.workspace is not None and self.tool_orchestrator is not None
+
+    def _is_router_sentinel_reply(self, assistant_reply: str) -> bool:
+        return assistant_reply.strip().lower() in ROUTER_SENTINEL_REPLIES
 
     def _emit_event(self, event_callback: Optional[Callable[[dict], None]], event: dict) -> None:
         if event_callback:

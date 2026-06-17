@@ -205,6 +205,16 @@ class BrowserConversationWorkflow:
             baseline_advanced = True
             if previous_assistant_message_count is not None:
                 current_assistant_message_count = self.adapter.assistant_message_count()
+                if (
+                    current_assistant_message_count is not None
+                    and current_assistant_message_count < previous_assistant_message_count
+                ):
+                    self.logger.debug(
+                        "assistant 回复节点数量回退，重置等待 baseline: "
+                        f"当前 {current_assistant_message_count}, baseline {previous_assistant_message_count}"
+                    )
+                    previous_assistant_message_count = current_assistant_message_count
+                    logged_waiting_for_baseline = False
                 baseline_advanced = (
                     current_assistant_message_count is not None
                     and current_assistant_message_count > previous_assistant_message_count
@@ -246,7 +256,7 @@ class BrowserConversationWorkflow:
         if last_reply:
             self.logger.warning(f"等待回复完成超时，返回已捕获回复，长度 {len(last_reply)}")
             return last_reply
-        raise TimeoutError("等待 AI 回复超时")
+        raise TimeoutError("等待 AI 回复超时，请注意是否达到今日额度上限")
 
     def send_text(self, text: str, **options) -> str:
         send_kwargs = self._as_kwargs(self.adapter.before_text_send(text, **options))

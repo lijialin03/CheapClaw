@@ -14,20 +14,31 @@
   关键信息 → 历史摘要 → 最近对话
 """
 import json
+import math
 import os
+import re
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Optional
 
 from .prompt_loader import render_prompt
 
 
-RECENT_CONTEXT_BUDGET = 2000
+MEMORY_CONTEXT_BUDGET = 2500
+KEY_INFO_CONTEXT_BUDGET = 600
+SUMMARY_CONTEXT_BUDGET = 900
+RECENT_CONTEXT_BUDGET = 1000
+MAX_SELECTED_KEY_INFO = 8
+MAX_SELECTED_SUMMARIES = 3
 AUTO_COMPRESS_THRESHOLD = 0.8
 AUTO_TRIM_THRESHOLD = 0.9
 MIN_MESSAGES_TO_COMPRESS = 4
 RECENT_MESSAGES_TO_KEEP = 2
 SUMMARY_MESSAGE_CHAR_LIMIT = 600
+GENERIC_SHORT_QUERIES = {"继续", "接着", "然后", "好的", "ok", "yes", "嗯", "好"}
+BM25_K1 = 1.2
+BM25_B = 0.75
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +55,32 @@ def estimate_tokens(text: str) -> int:
     cjk = sum(1 for char in text if "\u4e00" <= char <= "\u9fff")
     other = len(text) - cjk
     return int(cjk * 1.5 + other * 0.3) + 2
+
+
+def tokenize_memory_text(text: str) -> list[str]:
+    """提取检索 token，英文保留词项，中文/混合文本补充字符 n-gram。"""
+    if not text:
+        return []
+
+    lowered = text.lower()
+    tokens = re.findall(r"[a-z0-9_][a-z0-9_.-]*", lowered)
+    for cjk_run in re.findall(r"[\u4e00-\u9fff]+", lowered):
+        if len(cjk_run) <= 4:
+            tokens.append(cjk_run)
+        for size in (2, 3, 4):
+            tokens.extend(cjk_run[index:index + size] for index in range(len(cjk_run) - size + 1))
+    return [token for token in tokens if token]
+
+
+def extract_memory_tokens(text: str) -> set[str]:
+    return set(tokenize_memory_text(text))
+
+
+def is_generic_short_query(query: str) -> bool:
+    normalized = query.strip().lower()
+    if not normalized:
+        return False
+    return normalized in GENERIC_SHORT_QUERIES or len(extract_memory_tokens(normalized)) <= 1
 
 
 # ---------------------------------------------------------------------------
@@ -105,10 +142,6 @@ class ConversationBuffer:
         removed = self.messages[:-keep]
         self.messages = self.messages[-keep:]
         return removed
-
-    def pop_oldest_pairs(self, keep: int = RECENT_MESSAGES_TO_KEEP) -> list[Message]:
-        """兼容旧命名；实际按消息条数保留。"""
-        return self.pop_oldest_messages(keep=keep)
 
     def get_context(self, budget: int = None) -> str:
         """在 ``budget`` token 内返回最近的对话文本。"""
@@ -233,13 +266,14 @@ class Memory:
         self.buffer = ConversationBuffer(max_tokens=buffer_max_tokens)
         self.compressor = MemoryCompressor(max_summaries=max_summaries)
         self.key_info = KeyInfoStore()
-        self.persist_path = persist_path
+        self.persist_path = Path(persist_path) if persist_path else None
+        self.last_session: dict = {}
         self._llm_available = llm_call is not None
         self._llm_call = llm_call or (lambda _: "")
         self.last_events: list[dict] = []
         self._event_callback: Optional[Callable[[dict], None]] = None
 
-        if persist_path and os.path.exists(persist_path):
+        if self.persist_path and self.persist_path.exists():
             self.load()
 
     # ---- 公开 API ---------------------------------------------------------
@@ -266,13 +300,9 @@ class Memory:
     def get_key_info(self, key: str, default: str = None) -> Optional[str]:
         return self.key_info.get(key, default)
 
-    def get_context(self, as_text: bool = True) -> str:
-        """组装分层记忆文本。
-
-        按优先级: 关键信息 > 历史摘要 > 最近对话。
-        ``as_text`` 参数保留以便向后兼容。
-        """
-        return self._build_context()
+    def get_context(self, query: str = "", as_text: bool = True, budget: int = MEMORY_CONTEXT_BUDGET) -> str:
+        """按当前输入筛选并组装分层记忆文本。"""
+        return self._build_context(query=query, budget=budget)
 
     def compress_with_summary(self, summary_model=None) -> bool:
         """手动触发 LLM 摘要压缩。"""
@@ -280,33 +310,215 @@ class Memory:
             return self._try_compress()
 
         old_call = self._llm_call
+        old_available = self._llm_available
         self._llm_call = lambda prompt: summary_model.send_text(prompt)
+        self._llm_available = True
         try:
             return self._try_compress()
         finally:
             self._llm_call = old_call
+            self._llm_available = old_available
 
     def clear(self):
         self.buffer.messages.clear()
         self.compressor.summaries.clear()
         self.key_info.clear()
 
+    def close_session(self, compress: bool = True) -> dict:
+        """结束当前进程内 session，必要时摘要后清空工作记忆。"""
+        before_messages = self.buffer.message_count()
+        before_summaries = len(self.compressor.summaries)
+        compressed = False
+
+        if compress and before_messages >= MIN_MESSAGES_TO_COMPRESS:
+            compressed = self._try_compress(keep=0)
+
+        self.buffer.messages.clear()
+        self.last_session = {
+            "closed_at": time.time(),
+            "message_count": before_messages,
+            "compressed": compressed,
+            "summary_count": len(self.compressor.summaries) - before_summaries,
+        }
+        self.save()
+        self._record_event({
+            "type": "session_closed",
+            "messages": before_messages,
+            "compressed": compressed,
+            "summaries_added": len(self.compressor.summaries) - before_summaries,
+        })
+        return dict(self.last_session)
+
+    def clear_session(self) -> dict:
+        count = self.buffer.message_count()
+        self.buffer.messages.clear()
+        self.save()
+        return {"cleared": count, "remaining": 0}
+
+    def stats(self) -> dict:
+        return {
+            "path": str(self.persist_path) if self.persist_path else "",
+            "session_messages": self.buffer.message_count(),
+            "session_tokens": self.buffer.total_tokens(),
+            "summary_count": len(self.compressor.summaries),
+            "key_info_count": len(self.key_info.to_dict()),
+            "last_session": getattr(self, "last_session", {}),
+        }
+
+    def preview_context(self, query: str = "", budget: int = MEMORY_CONTEXT_BUDGET) -> dict:
+        selected = self._select_context_items(query=query, budget=budget)
+        return {
+            "query": query,
+            "budget": budget,
+            "selected_key_info": len(selected["key_info"]),
+            "selected_summaries": len(selected["summaries"]),
+            "recent_messages": selected["recent_messages"],
+            "key_info_tokens": selected["key_info_tokens"],
+            "summary_tokens": selected["summary_tokens"],
+            "recent_tokens": selected["recent_tokens"],
+            "total_tokens": selected["total_tokens"],
+        }
+
     # ---- Context 组装 -----------------------------------------------------
 
-    def _build_context(self) -> str:
+    def _build_context(self, query: str = "", budget: int = MEMORY_CONTEXT_BUDGET) -> str:
+        selected = self._select_context_items(query=query, budget=budget)
         parts: list[str] = []
-        self._append_context_part(parts, self.key_info.get_context())
-        self._append_context_part(parts, self.compressor.get_context())
 
-        recent_context = self.buffer.get_context(budget=RECENT_CONTEXT_BUDGET)
-        if recent_context:
-            parts.append("【最近对话】\n" + recent_context)
+        if selected["key_info"]:
+            lines = ["【关键信息】"]
+            lines.extend(f"  {key}: {value}" for key, value in selected["key_info"])
+            parts.append("\n".join(lines))
+
+        if selected["summaries"]:
+            lines = ["【相关历史摘要】"]
+            lines.extend(f"  {index}. {summary['content']}" for index, summary in enumerate(selected["summaries"], 1))
+            parts.append("\n".join(lines))
+
+        if selected["recent_context"]:
+            parts.append("【最近对话】\n" + selected["recent_context"])
 
         return "\n\n".join(parts)
 
-    def _append_context_part(self, parts: list[str], context: str) -> None:
-        if context:
-            parts.append(context)
+    def _select_context_items(self, query: str = "", budget: int = MEMORY_CONTEXT_BUDGET) -> dict:
+        query = query or ""
+        generic_query = is_generic_short_query(query)
+        recent_budget = min(RECENT_CONTEXT_BUDGET, budget)
+        recent_context = self.buffer.get_context(budget=recent_budget)
+        recent_tokens = estimate_tokens(recent_context)
+        remaining_budget = max(0, budget - recent_tokens)
+
+        key_budget = min(KEY_INFO_CONTEXT_BUDGET, remaining_budget)
+        selected_key_info, key_tokens = self._select_key_info(query, key_budget, generic_query)
+        remaining_budget = max(0, remaining_budget - key_tokens)
+
+        summary_budget = min(SUMMARY_CONTEXT_BUDGET, remaining_budget)
+        selected_summaries, summary_tokens = self._select_summaries(query, summary_budget, generic_query)
+
+        return {
+            "key_info": selected_key_info,
+            "summaries": selected_summaries,
+            "recent_context": recent_context,
+            "recent_messages": self._count_recent_messages(recent_context),
+            "key_info_tokens": key_tokens,
+            "summary_tokens": summary_tokens,
+            "recent_tokens": recent_tokens,
+            "total_tokens": key_tokens + summary_tokens + recent_tokens,
+        }
+
+    def _select_key_info(self, query: str, budget: int, generic_query: bool) -> tuple[list[tuple[str, str]], int]:
+        if budget <= 0 or not self.key_info.to_dict() or generic_query:
+            return [], 0
+        scored = []
+        items = list(self.key_info.to_dict().items())
+        corpus_tokens = [tokenize_memory_text(f"{key}: {value}") for key, value in items]
+        for index, (key, value) in enumerate(items):
+            text = f"{key}: {value}"
+            score = self._score_memory_text(query, text, corpus_tokens)
+            if query and score <= 0:
+                continue
+            scored.append((score + index * 0.001, key, value, estimate_tokens(text)))
+        scored.sort(reverse=True, key=lambda item: item[0])
+        selected: list[tuple[str, str]] = []
+        total = 0
+        for _, key, value, tokens in scored:
+            if len(selected) >= MAX_SELECTED_KEY_INFO or total + tokens > budget:
+                continue
+            selected.append((key, value))
+            total += tokens
+        return selected, total
+
+    def _select_summaries(self, query: str, budget: int, generic_query: bool) -> tuple[list[dict], int]:
+        if budget <= 0 or not self.compressor.summaries or generic_query:
+            return [], 0
+        scored = []
+        corpus_tokens = [tokenize_memory_text(summary.get("content", "")) for summary in self.compressor.summaries]
+        for index, summary in enumerate(self.compressor.summaries):
+            content = summary.get("content", "")
+            score = self._score_memory_text(query, content, corpus_tokens)
+            if query and score <= 0:
+                continue
+            scored.append((score + index * 0.01, summary, estimate_tokens(content)))
+        scored.sort(reverse=True, key=lambda item: item[0])
+        selected: list[dict] = []
+        total = 0
+        for _, summary, tokens in scored:
+            if len(selected) >= MAX_SELECTED_SUMMARIES or total + tokens > budget:
+                continue
+            selected.append(summary)
+            total += tokens
+        selected.sort(key=lambda item: item.get("timestamp", 0))
+        return selected, total
+
+    def _score_memory_text(self, query: str, text: str, corpus_tokens: list[list[str]] = None) -> float:
+        if not query:
+            return 0.1
+        if corpus_tokens is None:
+            corpus_tokens = [tokenize_memory_text(text)]
+        query_tokens = tokenize_memory_text(query)
+        document_tokens = tokenize_memory_text(text)
+        if not query_tokens or not document_tokens:
+            return 0.0
+        return self._bm25_score(query_tokens, document_tokens, corpus_tokens)
+
+    def _bm25_score(self, query_tokens: list[str], document_tokens: list[str], corpus_tokens: list[list[str]]) -> float:
+        document_count = len(corpus_tokens)
+        if document_count == 0:
+            return 0.0
+
+        avg_document_length = sum(len(tokens) for tokens in corpus_tokens) / document_count or 1
+        document_length = len(document_tokens) or 1
+        term_frequencies = self._term_counts(document_tokens)
+        document_frequencies = self._document_frequencies(corpus_tokens)
+        score = 0.0
+
+        for token in set(query_tokens):
+            frequency = term_frequencies.get(token, 0)
+            if frequency == 0:
+                continue
+            containing_documents = document_frequencies.get(token, 0)
+            idf = math.log(1 + (document_count - containing_documents + 0.5) / (containing_documents + 0.5))
+            denominator = frequency + BM25_K1 * (1 - BM25_B + BM25_B * document_length / avg_document_length)
+            score += idf * frequency * (BM25_K1 + 1) / denominator
+        return score
+
+    def _term_counts(self, tokens: list[str]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for token in tokens:
+            counts[token] = counts.get(token, 0) + 1
+        return counts
+
+    def _document_frequencies(self, corpus_tokens: list[list[str]]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for tokens in corpus_tokens:
+            for token in set(tokens):
+                counts[token] = counts.get(token, 0) + 1
+        return counts
+
+    def _count_recent_messages(self, recent_context: str) -> int:
+        if not recent_context:
+            return 0
+        return sum(1 for line in recent_context.splitlines() if line.startswith(("用户:", "AI:")))
 
     # ---- 压缩逻辑 --------------------------------------------------------
 
@@ -337,11 +549,11 @@ class Memory:
                 "remaining": self.buffer.message_count(),
             })
 
-    def _try_compress(self) -> bool:
-        """将工作记忆中最旧的一批消息压缩为摘要（需 LLM 支持）。"""
-        if len(self.buffer.messages) < MIN_MESSAGES_TO_COMPRESS:
+    def _try_compress(self, keep: int = RECENT_MESSAGES_TO_KEEP) -> bool:
+        """将工作记忆中较早消息压缩为摘要（需 LLM 支持）。"""
+        if not self._llm_available or len(self.buffer.messages) < MIN_MESSAGES_TO_COMPRESS:
             return False
-        removed = self.buffer.messages[:-RECENT_MESSAGES_TO_KEEP]
+        removed = self.buffer.messages[:-keep] if keep > 0 else self.buffer.messages[:]
         if not removed:
             return False
 
@@ -349,7 +561,7 @@ class Memory:
         summary = self.compressor.compress(text, self._llm_call)
         if not summary:
             return False
-        self.buffer.messages = self.buffer.messages[-RECENT_MESSAGES_TO_KEEP:]
+        self.buffer.messages = self.buffer.messages[-keep:] if keep > 0 else []
         return True
 
     def _trim_oldest_messages(self) -> None:
@@ -379,18 +591,20 @@ class Memory:
         if not self.persist_path:
             return
         data = {
-            "buffer": [message.to_dict() for message in self.buffer.messages],
             "summaries": self.compressor.to_dict(),
             "key_info": self.key_info.to_dict(),
+            "last_session": self.last_session,
         }
+        self.persist_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.persist_path, "w", encoding="utf-8") as file:
             json.dump(data, file, ensure_ascii=False, indent=2)
 
     def load(self):
-        if not self.persist_path or not os.path.exists(self.persist_path):
+        if not self.persist_path or not self.persist_path.exists():
             return
         with open(self.persist_path, "r", encoding="utf-8") as file:
             data = json.load(file)
-        self.buffer.messages = [Message.from_dict(message) for message in data.get("buffer", [])]
+        self.buffer.messages.clear()
         self.compressor.from_dict(data.get("summaries", []))
         self.key_info.from_dict(data.get("key_info", {}))
+        self.last_session = data.get("last_session", {})

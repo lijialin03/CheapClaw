@@ -3,12 +3,13 @@ import argparse
 from pathlib import Path
 
 from model_clients import QwenClient
-from agent_core import Agent, Assembler, Memory
+from agent_core import Agent, Memory
 from agent_core.workspace import Workspace
 from ui import RichCLI
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
+MEMORY_PATH = PROJECT_ROOT / ".cheapclaw" / "memory" / "memory.json"
 
 MODEL_CLIENTS = {
     "qwen": QwenClient,
@@ -42,24 +43,14 @@ def main():
 
     # 2. 再初始化记忆系统（需要 client.send_text 做自动压缩摘要）
     memory = Memory(
-        persist_path="memory.json",
+        persist_path=MEMORY_PATH,
         llm_call=client.send_text,
     )
 
-    # 3. 组装器
-    assembler = Assembler(
-        system_prompt=(
-            "你是一个严谨的代码工程师，擅长生成 Python 代码、解答工程相关的问题。"
-            "生成代码时不要添加行号，直接输出代码块。"
-        ),
-        memory=memory
-    )
-
-    # 4. Workspace 沙箱和编排层
+    # 3. Workspace 沙箱和编排层
     workspace = Workspace(root=args.workspace_root)
     agent = Agent(
         client=client,
-        assembler=assembler,
         memory=memory,
         workspace=workspace,
         max_text_chars=args.max_text_chars,
@@ -68,7 +59,7 @@ def main():
         max_tool_steps=args.max_tool_steps,
     )
 
-    # 5. 根据参数选择 UI
+    # 4. 根据参数选择 UI
     if args.ui == "rich":
         cli = RichCLI(agent, title=f"{model_name} 对话助手")
         cli.run()

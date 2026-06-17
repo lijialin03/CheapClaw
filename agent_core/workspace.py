@@ -12,7 +12,7 @@ class WorkspaceError(ValueError):
 class Workspace:
     """Workspace 路径沙箱，负责限制受控终端只能访问安全的项目路径。"""
 
-    SENSITIVE_NAMES = {"memory.json"}
+    SENSITIVE_NAMES = set()
     SENSITIVE_SUFFIXES = {".pem", ".key"}
 
     def __init__(self, root: str | Path = PROJECT_ROOT):
@@ -32,6 +32,8 @@ class Workspace:
         relative_parts = path.relative_to(self.root).parts if self._is_inside_root(path) else path.parts
         if ".git" in relative_parts:
             raise WorkspaceError("拒绝访问 .git 目录")
+        if ".cheapclaw" in relative_parts:
+            raise WorkspaceError("拒绝访问 .cheapclaw 系统目录")
         if path.name.startswith(".env"):
             raise WorkspaceError(f"拒绝访问敏感文件: {path.name}")
         if path.name in self.SENSITIVE_NAMES:
