@@ -1,6 +1,10 @@
 import pytest
 
-from agent_core.prompt_loader import PLACEHOLDER_PATTERN, load_prompt_template, render_prompt
+from agent_core.prompt_loader import (
+    PLACEHOLDER_PATTERN,
+    load_prompt_template,
+    render_prompt,
+)
 
 
 @pytest.mark.parametrize(
@@ -20,14 +24,18 @@ def test_known_prompt_templates_load_successfully(name, marker):
     assert marker in template
 
 
-@pytest.mark.parametrize("name", ["missing.md", "../config/default_config.json", "/etc/passwd"])
+@pytest.mark.parametrize(
+    "name", ["missing.md", "../config/default_config.json", "/etc/passwd"]
+)
 def test_missing_or_path_escape_prompt_names_fail_safely(name):
     with pytest.raises(FileNotFoundError):
         load_prompt_template(name)
 
 
 def test_render_prompt_replaces_variables():
-    rendered = render_prompt("chat.md", memory_section="MEMORY HERE", user_input="USER HERE")
+    rendered = render_prompt(
+        "chat.md", memory_section="MEMORY HERE", user_input="USER HERE"
+    )
 
     assert "MEMORY HERE" in rendered
     assert "USER HERE" in rendered
@@ -44,13 +52,24 @@ def test_render_prompt_missing_variables_raise_key_error():
     [
         ("chat.md", {"memory_section", "user_input"}),
         ("tool_router.md", {"user_input"}),
-        ("tool_planner.md", {"user_input", "examples", "policy", "force_final_rule", "observations_json"}),
+        (
+            "tool_planner.md",
+            {
+                "user_input",
+                "examples",
+                "policy",
+                "force_final_rule",
+                "observations_json",
+            },
+        ),
         ("memory_summary.md", {"text"}),
         ("file_replace.md", {"user_input", "path", "observations_json"}),
         ("file_transport.md", set()),
     ],
 )
-def test_prompt_template_placeholders_match_expected_contract(name, expected_placeholders):
+def test_prompt_template_placeholders_match_expected_contract(
+    name, expected_placeholders
+):
     template = load_prompt_template(name)
 
     assert set(PLACEHOLDER_PATTERN.findall(template)) == expected_placeholders

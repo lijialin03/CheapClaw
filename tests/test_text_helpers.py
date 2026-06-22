@@ -27,7 +27,7 @@ print("hello")
     assert "#" not in plain
     assert "**" not in plain
     assert "https://example.com" not in plain
-    assert "print(\"hello\")" in plain
+    assert 'print("hello")' in plain
     assert "Title" in plain
     assert "linked" in plain
 
@@ -41,7 +41,10 @@ def test_extract_json_response_text_handles_fenced_json():
 
 
 def test_extract_json_response_text_handles_embedded_json():
-    assert extract_json_response_text('before {"answer": {"nested": true}} after') == '{"answer": {"nested": true}}'
+    assert (
+        extract_json_response_text('before {"answer": {"nested": true}} after')
+        == '{"answer": {"nested": true}}'
+    )
 
 
 def test_diagnose_structured_response_accepts_valid_schema():
@@ -60,7 +63,9 @@ def test_diagnose_structured_response_accepts_valid_schema():
 
 
 def test_diagnose_structured_response_rejects_invalid_schema():
-    data, reason, raw = diagnose_structured_response('{"parts": [{"type": "image", "content": "x"}]}')
+    data, reason, raw = diagnose_structured_response(
+        '{"parts": [{"type": "image", "content": "x"}]}'
+    )
 
     assert data is None
     assert reason == "invalid_schema:part_type:image"
@@ -87,7 +92,10 @@ def test_clean_generated_file_content_strips_fences_language_labels_and_line_num
 def test_clean_generated_file_content_preserves_plain_yaml_structure():
     content = "repos:\n  - repo: x\n    hooks:\n      - id: check-yaml\n"
 
-    assert clean_generated_file_content(content) == "repos:\n  - repo: x\n    hooks:\n      - id: check-yaml"
+    assert (
+        clean_generated_file_content(content)
+        == "repos:\n  - repo: x\n    hooks:\n      - id: check-yaml"
+    )
 
 
 def test_clean_generated_file_content_extracts_fenced_yaml():
@@ -98,13 +106,21 @@ repos:
       - id: check-yaml
 ```"""
 
-    assert clean_generated_file_content(content) == "repos:\n  - repo: x\n    hooks:\n      - id: check-yaml"
+    assert (
+        clean_generated_file_content(content)
+        == "repos:\n  - repo: x\n    hooks:\n      - id: check-yaml"
+    )
 
 
 def test_clean_generated_file_content_restores_rendered_yaml_code_block():
-    rendered = "yaml\n1\n2\n3\n4\nrepos:\n  - repo: x\n    hooks:\n      - id: check-yaml"
+    rendered = (
+        "yaml\n1\n2\n3\n4\nrepos:\n  - repo: x\n    hooks:\n      - id: check-yaml"
+    )
 
-    assert clean_generated_file_content(rendered) == "repos:\n  - repo: x\n    hooks:\n      - id: check-yaml"
+    assert (
+        clean_generated_file_content(rendered)
+        == "repos:\n  - repo: x\n    hooks:\n      - id: check-yaml"
+    )
 
 
 def test_truncate_text_fields_truncates_long_strings_and_records_removed_chars():

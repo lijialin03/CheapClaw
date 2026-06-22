@@ -3,7 +3,6 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "default_config.json"
 DEFAULT_WORKSPACE_CONFIG_PATH = Path.cwd() / "config" / "default_config.json"
@@ -22,14 +21,49 @@ class ToolConfig(BaseModel):
     cancel_command_reply: str = "no"
     tool_router_positive_replies: tuple[str, ...] = ("terminal", "tool", "tools", "yes")
     tool_router_negative_replies: tuple[str, ...] = ("chat", "none", "no")
-    router_sentinel_replies: tuple[str, ...] = ("chat", "none", "no", "terminal", "tool", "tools", "yes")
+    router_sentinel_replies: tuple[str, ...] = (
+        "chat",
+        "none",
+        "no",
+        "terminal",
+        "tool",
+        "tools",
+        "yes",
+    )
     workspace_read_verbs: tuple[str, ...] = (
-        "读取", "读", "查看", "检查", "列出", "看看", "打开", "分析", "总结",
-        "review", "analyze", "read", "show", "list", "stat",
+        "读取",
+        "读",
+        "查看",
+        "检查",
+        "列出",
+        "看看",
+        "打开",
+        "分析",
+        "总结",
+        "review",
+        "analyze",
+        "read",
+        "show",
+        "list",
+        "stat",
     )
     workspace_targets: tuple[str, ...] = (
-        "目录", "文件", "路径", "当前目录", "workspace", "run.py", ".py", ".json",
-        ".md", ".txt", "/", "./", "agent_core", "ui", "model_clients", "config",
+        "目录",
+        "文件",
+        "路径",
+        "当前目录",
+        "workspace",
+        "run.py",
+        ".py",
+        ".json",
+        ".md",
+        ".txt",
+        "/",
+        "./",
+        "agent_core",
+        "ui",
+        "model_clients",
+        "config",
     )
     tool_step_limit_message: str = "已达到终端命令调用步数上限，无法继续读取更多信息。"
     file_edit_diff_preview_chars: int = Field(default=3000, gt=0)
@@ -91,7 +125,16 @@ class MemoryConfig(BaseModel):
     min_messages_to_compress: int = Field(default=4, gt=0)
     recent_messages_to_keep: int = Field(default=2, gt=0)
     summary_message_char_limit: int = Field(default=600, gt=0)
-    generic_short_queries: tuple[str, ...] = ("继续", "接着", "然后", "好的", "ok", "yes", "嗯", "好")
+    generic_short_queries: tuple[str, ...] = (
+        "继续",
+        "接着",
+        "然后",
+        "好的",
+        "ok",
+        "yes",
+        "嗯",
+        "好",
+    )
     bm25_k1: float = Field(default=1.2, gt=0)
     bm25_b: float = Field(default=0.75, gt=0)
     buffer_max_tokens: int = Field(default=3000, gt=0)

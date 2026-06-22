@@ -1,21 +1,5 @@
-# agent_core/memory.py
-"""
-分层对话记忆系统
-
-架构（三层）:
-  Level 1 - 工作记忆 (ConversationBuffer)
-    保留最近的完整对话，受 token 预算约束
-  Level 2 - 压缩记忆 (MemoryCompressor)
-    对更早的历史做 LLM 摘要，保留关键信息
-  Level 3 - 关键信息 (KeyInfoStore)
-    持久化的用户偏好/技术决策/事实等
-
-组装策略（按优先级降序）:
-  关键信息 → 历史摘要 → 最近对话
-"""
 import json
 import math
-import os
 import re
 import time
 import uuid
@@ -26,10 +10,10 @@ from typing import Callable, Optional
 from .config import MemoryConfig
 from .prompt_loader import render_prompt
 
-
 # ---------------------------------------------------------------------------
 # Token 估算（不依赖外部 tokenizer）
 # ---------------------------------------------------------------------------
+
 
 def estimate_tokens(text: str) -> int:
     """估算文本的 token 数（近似值，不引入外部依赖）。
@@ -54,7 +38,10 @@ def tokenize_memory_text(text: str) -> list[str]:
         if len(cjk_run) <= 4:
             tokens.append(cjk_run)
         for size in (2, 3, 4):
-            tokens.extend(cjk_run[index:index + size] for index in range(len(cjk_run) - size + 1))
+            tokens.extend(
+                cjk_run[index : index + size]
+                for index in range(len(cjk_run) - size + 1)
+            )
     return [token for token in tokens if token]
 
 
@@ -66,18 +53,22 @@ def is_generic_short_query(query: str, generic_short_queries: tuple[str, ...]) -
     normalized = query.strip().lower()
     if not normalized:
         return False
-    return normalized in generic_short_queries or len(extract_memory_tokens(normalized)) <= 1
+    return (
+        normalized in generic_short_queries
+        or len(extract_memory_tokens(normalized)) <= 1
+    )
 
 
 # ---------------------------------------------------------------------------
 # Level 1: 工作记忆
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class Message:
     """单条对话消息"""
 
-    role: str          # "user" | "assistant"
+    role: str  # "user" | "assistant"
     content: str
     token_count: int
     timestamp: float
@@ -108,12 +99,14 @@ class ConversationBuffer:
         self.max_tokens = max_tokens
 
     def add(self, role: str, content: str) -> None:
-        self.messages.append(Message(
-            role=role,
-            content=content,
-            token_count=estimate_tokens(content),
-            timestamp=time.time(),
-        ))
+        self.messages.append(
+            Message(
+                role=role,
+                content=content,
+                token_count=estimate_tokens(content),
+                timestamp=time.time(),
+            )
+        )
 
     def total_tokens(self) -> int:
         return sum(message.token_count for message in self.messages)
@@ -151,11 +144,12 @@ class ConversationBuffer:
 # Level 2: 压缩记忆
 # ---------------------------------------------------------------------------
 
+
 class MemoryCompressor:
     """Level 2: 压缩记忆，将老的历史对话通过 LLM 压缩为摘要。"""
 
     def __init__(self, max_summaries: int = 5):
-        self.summaries: list[dict] = []   # [{"content": str, "timestamp": float}, ...]
+        self.summaries: list[dict] = []  # [{"content": str, "timestamp": float}, ...]
         self.max_summaries = max_summaries
 
     def compress(self, text: str, llm_call: Callable[[str], str]) -> str:
@@ -164,10 +158,12 @@ class MemoryCompressor:
         try:
             summary = llm_call(prompt).strip()
             if summary:
-                self.summaries.append({
-                    "content": summary,
-                    "timestamp": time.time(),
-                })
+                self.summaries.append(
+                    {
+                        "content": summary,
+                        "timestamp": time.time(),
+                    }
+                )
                 self._trim()
             return summary
         except Exception:
@@ -201,6 +197,7 @@ class MemoryCompressor:
 # ---------------------------------------------------------------------------
 # Level 3: 关键信息（简化版 key-value store）
 # ---------------------------------------------------------------------------
+
 
 class KeyInfoStore:
     """Level 3: 关键信息，存储持久化偏好、技术决策和项目约定。"""
@@ -239,6 +236,7 @@ class KeyInfoStore:
 # Memory — 统一入口
 # ---------------------------------------------------------------------------
 
+
 class Memory:
     """分层对话记忆管理器。"""
 
@@ -251,8 +249,12 @@ class Memory:
         config: MemoryConfig | None = None,
     ):
         self.config = config or MemoryConfig()
-        self.buffer = ConversationBuffer(max_tokens=buffer_max_tokens or self.config.buffer_max_tokens)
-        self.compressor = MemoryCompressor(max_summaries=max_summaries or self.config.max_summaries)
+        self.buffer = ConversationBuffer(
+            max_tokens=buffer_max_tokens or self.config.buffer_max_tokens
+        )
+        self.compressor = MemoryCompressor(
+            max_summaries=max_summaries or self.config.max_summaries
+        )
         self.key_info = KeyInfoStore()
         self.persist_path = Path(persist_path) if persist_path else None
         self.session_id = f"session-{int(time.time())}-{uuid.uuid4().hex[:8]}"
@@ -290,7 +292,9 @@ class Memory:
     def get_key_info(self, key: str, default: str = None) -> Optional[str]:
         return self.key_info.get(key, default)
 
-    def get_context(self, query: str = "", as_text: bool = True, budget: int | None = None) -> str:
+    def get_context(
+        self, query: str = "", as_text: bool = True, budget: int | None = None
+    ) -> str:
         """按当前输入筛选并组装分层记忆文本。"""
         return self._build_context(query=query, budget=budget)
 
@@ -325,7 +329,9 @@ class Memory:
             compressed = self._try_compress(keep=0)
 
         summaries_added = len(self.compressor.summaries) - before_summaries
-        session_summaries = self.compressor.summaries[before_summaries:] if summaries_added > 0 else []
+        session_summaries = (
+            self.compressor.summaries[before_summaries:] if summaries_added > 0 else []
+        )
         closed_at = time.time()
         session_file = self._save_session_archive(
             closed_at=closed_at,
@@ -346,13 +352,15 @@ class Memory:
         }
         self.session_history.append(dict(self.last_session))
         self.save()
-        self._record_event({
-            "type": "session_closed",
-            "messages": before_messages,
-            "compressed": compressed,
-            "summaries_added": summaries_added,
-            "path": str(session_file) if session_file else "",
-        })
+        self._record_event(
+            {
+                "type": "session_closed",
+                "messages": before_messages,
+                "compressed": compressed,
+                "summaries_added": summaries_added,
+                "path": str(session_file) if session_file else "",
+            }
+        )
         return dict(self.last_session)
 
     def clear_session(self) -> dict:
@@ -399,7 +407,10 @@ class Memory:
 
         if selected["summaries"]:
             lines = ["【相关历史摘要】"]
-            lines.extend(f"  {index}. {summary['content']}" for index, summary in enumerate(selected["summaries"], 1))
+            lines.extend(
+                f"  {index}. {summary['content']}"
+                for index, summary in enumerate(selected["summaries"], 1)
+            )
             parts.append("\n".join(lines))
 
         if selected["recent_context"]:
@@ -417,11 +428,15 @@ class Memory:
         remaining_budget = max(0, budget - recent_tokens)
 
         key_budget = min(self.config.key_info_context_budget, remaining_budget)
-        selected_key_info, key_tokens = self._select_key_info(query, key_budget, generic_query)
+        selected_key_info, key_tokens = self._select_key_info(
+            query, key_budget, generic_query
+        )
         remaining_budget = max(0, remaining_budget - key_tokens)
 
         summary_budget = min(self.config.summary_context_budget, remaining_budget)
-        selected_summaries, summary_tokens = self._select_summaries(query, summary_budget, generic_query)
+        selected_summaries, summary_tokens = self._select_summaries(
+            query, summary_budget, generic_query
+        )
 
         return {
             "key_info": selected_key_info,
@@ -434,12 +449,16 @@ class Memory:
             "total_tokens": key_tokens + summary_tokens + recent_tokens,
         }
 
-    def _select_key_info(self, query: str, budget: int, generic_query: bool) -> tuple[list[tuple[str, str]], int]:
+    def _select_key_info(
+        self, query: str, budget: int, generic_query: bool
+    ) -> tuple[list[tuple[str, str]], int]:
         if budget <= 0 or not self.key_info.to_dict() or generic_query:
             return [], 0
         scored = []
         items = list(self.key_info.to_dict().items())
-        corpus_tokens = [tokenize_memory_text(f"{key}: {value}") for key, value in items]
+        corpus_tokens = [
+            tokenize_memory_text(f"{key}: {value}") for key, value in items
+        ]
         for index, (key, value) in enumerate(items):
             text = f"{key}: {value}"
             score = self._score_memory_text(query, text, corpus_tokens)
@@ -450,17 +469,25 @@ class Memory:
         selected: list[tuple[str, str]] = []
         total = 0
         for _, key, value, tokens in scored:
-            if len(selected) >= self.config.max_selected_key_info or total + tokens > budget:
+            if (
+                len(selected) >= self.config.max_selected_key_info
+                or total + tokens > budget
+            ):
                 continue
             selected.append((key, value))
             total += tokens
         return selected, total
 
-    def _select_summaries(self, query: str, budget: int, generic_query: bool) -> tuple[list[dict], int]:
+    def _select_summaries(
+        self, query: str, budget: int, generic_query: bool
+    ) -> tuple[list[dict], int]:
         if budget <= 0 or not self.compressor.summaries or generic_query:
             return [], 0
         scored = []
-        corpus_tokens = [tokenize_memory_text(summary.get("content", "")) for summary in self.compressor.summaries]
+        corpus_tokens = [
+            tokenize_memory_text(summary.get("content", ""))
+            for summary in self.compressor.summaries
+        ]
         for index, summary in enumerate(self.compressor.summaries):
             content = summary.get("content", "")
             score = self._score_memory_text(query, content, corpus_tokens)
@@ -471,14 +498,19 @@ class Memory:
         selected: list[dict] = []
         total = 0
         for _, summary, tokens in scored:
-            if len(selected) >= self.config.max_selected_summaries or total + tokens > budget:
+            if (
+                len(selected) >= self.config.max_selected_summaries
+                or total + tokens > budget
+            ):
                 continue
             selected.append(summary)
             total += tokens
         selected.sort(key=lambda item: item.get("timestamp", 0))
         return selected, total
 
-    def _score_memory_text(self, query: str, text: str, corpus_tokens: list[list[str]] = None) -> float:
+    def _score_memory_text(
+        self, query: str, text: str, corpus_tokens: list[list[str]] = None
+    ) -> float:
         if not query:
             return 0.1
         if corpus_tokens is None:
@@ -489,12 +521,19 @@ class Memory:
             return 0.0
         return self._bm25_score(query_tokens, document_tokens, corpus_tokens)
 
-    def _bm25_score(self, query_tokens: list[str], document_tokens: list[str], corpus_tokens: list[list[str]]) -> float:
+    def _bm25_score(
+        self,
+        query_tokens: list[str],
+        document_tokens: list[str],
+        corpus_tokens: list[list[str]],
+    ) -> float:
         document_count = len(corpus_tokens)
         if document_count == 0:
             return 0.0
 
-        avg_document_length = sum(len(tokens) for tokens in corpus_tokens) / document_count or 1
+        avg_document_length = (
+            sum(len(tokens) for tokens in corpus_tokens) / document_count or 1
+        )
         document_length = len(document_tokens) or 1
         term_frequencies = self._term_counts(document_tokens)
         document_frequencies = self._document_frequencies(corpus_tokens)
@@ -505,9 +544,15 @@ class Memory:
             if frequency == 0:
                 continue
             containing_documents = document_frequencies.get(token, 0)
-            idf = math.log(1 + (document_count - containing_documents + 0.5) / (containing_documents + 0.5))
+            idf = math.log(
+                1
+                + (document_count - containing_documents + 0.5)
+                / (containing_documents + 0.5)
+            )
             denominator = frequency + self.config.bm25_k1 * (
-                1 - self.config.bm25_b + self.config.bm25_b * document_length / avg_document_length
+                1
+                - self.config.bm25_b
+                + self.config.bm25_b * document_length / avg_document_length
             )
             score += idf * frequency * (self.config.bm25_k1 + 1) / denominator
         return score
@@ -528,20 +573,31 @@ class Memory:
     def _count_recent_messages(self, recent_context: str) -> int:
         if not recent_context:
             return 0
-        return sum(1 for line in recent_context.splitlines() if line.startswith(("用户:", "AI:")))
+        return sum(
+            1
+            for line in recent_context.splitlines()
+            if line.startswith(("用户:", "AI:"))
+        )
 
     # ---- 压缩逻辑 --------------------------------------------------------
 
     def _maybe_compress(self):
         """工作记忆超过阈值时自动压缩。"""
-        if self.buffer.total_tokens() < self.buffer.max_tokens * self.config.auto_compress_threshold:
+        if (
+            self.buffer.total_tokens()
+            < self.buffer.max_tokens * self.config.auto_compress_threshold
+        ):
             return
 
-        if self._llm_available and self.buffer.message_count() >= self.config.min_messages_to_compress:
+        if (
+            self._llm_available
+            and self.buffer.message_count() >= self.config.min_messages_to_compress
+        ):
             self._auto_compress()
 
         while (
-            self.buffer.total_tokens() > self.buffer.max_tokens * self.config.auto_trim_threshold
+            self.buffer.total_tokens()
+            > self.buffer.max_tokens * self.config.auto_trim_threshold
             and self.buffer.message_count() >= self.config.min_messages_to_compress
         ):
             self._trim_oldest_messages()
@@ -552,17 +608,22 @@ class Memory:
         self._record_event({"type": "auto_compressing"})
         compressed = self._try_compress()
         if compressed and len(self.compressor.summaries) > before_summaries:
-            self._record_event({
-                "type": "auto_compressed",
-                "removed": before_messages - self.buffer.message_count(),
-                "summaries": len(self.compressor.summaries),
-                "remaining": self.buffer.message_count(),
-            })
+            self._record_event(
+                {
+                    "type": "auto_compressed",
+                    "removed": before_messages - self.buffer.message_count(),
+                    "summaries": len(self.compressor.summaries),
+                    "remaining": self.buffer.message_count(),
+                }
+            )
 
     def _try_compress(self, keep: int | None = None) -> bool:
         """将工作记忆中较早消息压缩为摘要（需 LLM 支持）。"""
         keep = self.config.recent_messages_to_keep if keep is None else keep
-        if not self._llm_available or len(self.buffer.messages) < self.config.min_messages_to_compress:
+        if (
+            not self._llm_available
+            or len(self.buffer.messages) < self.config.min_messages_to_compress
+        ):
             return False
         removed = self.buffer.messages[:-keep] if keep > 0 else self.buffer.messages[:]
         if not removed:
@@ -578,12 +639,16 @@ class Memory:
     def _trim_oldest_messages(self) -> None:
         before_messages = self.buffer.message_count()
         self._record_event({"type": "auto_trimming"})
-        self.buffer.pop_oldest_messages(keep=self.buffer.message_count() - self.config.recent_messages_to_keep)
-        self._record_event({
-            "type": "auto_trimmed",
-            "removed": before_messages - self.buffer.message_count(),
-            "remaining": self.buffer.message_count(),
-        })
+        self.buffer.pop_oldest_messages(
+            keep=self.buffer.message_count() - self.config.recent_messages_to_keep
+        )
+        self._record_event(
+            {
+                "type": "auto_trimmed",
+                "removed": before_messages - self.buffer.message_count(),
+                "remaining": self.buffer.message_count(),
+            }
+        )
 
     def _format_messages_for_summary(self, messages: list[Message]) -> str:
         return "\n".join(

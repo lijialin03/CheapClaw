@@ -1,4 +1,3 @@
-# ui/command_handler.py
 from rich.console import Console
 from rich.panel import Panel
 
@@ -42,7 +41,9 @@ class CLICommandHandler:
         if subcommand in {"status", ""}:
             self._show_memory_status()
             return
-        self.console.print("[yellow]用法: /memory | /memory preview <query> | /memory clear-session[/yellow]")
+        self.console.print(
+            "[yellow]用法: /memory | /memory preview <query> | /memory clear-session[/yellow]"
+        )
 
     def _show_memory_status(self) -> None:
         status = self.agent.memory_status()
@@ -59,7 +60,9 @@ class CLICommandHandler:
                 f"{last_session.get('message_count', 0)} 条消息，"
                 f"压缩={'是' if last_session.get('compressed') else '否'}"
             )
-        self.console.print(Panel("\n".join(lines), title="记忆状态", border_style="cyan"))
+        self.console.print(
+            Panel("\n".join(lines), title="记忆状态", border_style="cyan")
+        )
 
     def _show_memory_preview(self, query: str) -> None:
         preview = self.agent.memory_preview(query=query)
@@ -71,11 +74,15 @@ class CLICommandHandler:
             f"最近对话: {preview.get('recent_messages', 0)} 条 / {preview.get('recent_tokens', 0)} tokens",
             f"总计: {preview.get('total_tokens', 0)} tokens",
         ]
-        self.console.print(Panel("\n".join(lines), title="记忆预览", border_style="cyan"))
+        self.console.print(
+            Panel("\n".join(lines), title="记忆预览", border_style="cyan")
+        )
 
     def _clear_session_memory(self) -> None:
         result = self.agent.clear_session_memory()
-        self.console.print(f"[green]已清空当前 session 工作记忆：{result['cleared']} 条消息。[/green]")
+        self.console.print(
+            f"[green]已清空当前 session 工作记忆：{result['cleared']} 条消息。[/green]"
+        )
 
     def _compress_memory(self):
         status = self.console.status("[bold cyan]压缩中...[/bold cyan]")

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Export Qwen login state for reuse on a headless machine.
 
 Run this on a machine with a visible browser. The script opens Qwen, waits for you
@@ -18,11 +17,25 @@ QWEN_URL = "https://chat.qwen.ai/"
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Export Qwen Playwright storage_state.json after manual login.")
-    parser.add_argument("--output", default=str(DEFAULT_OUTPUT), help="Output storage_state JSON path.")
-    parser.add_argument("--user-data-dir", default=str(DEFAULT_USER_DATA_DIR), help="Temporary browser profile path for the export flow only.")
-    parser.add_argument("--timeout", type=int, default=300, help="Seconds to wait for manual login.")
-    parser.add_argument("--browser", default=None, help="Optional browser executable path, e.g. /usr/bin/google-chrome.")
+    parser = argparse.ArgumentParser(
+        description="Export Qwen Playwright storage_state.json after manual login."
+    )
+    parser.add_argument(
+        "--output", default=str(DEFAULT_OUTPUT), help="Output storage_state JSON path."
+    )
+    parser.add_argument(
+        "--user-data-dir",
+        default=str(DEFAULT_USER_DATA_DIR),
+        help="Temporary browser profile path for the export flow only.",
+    )
+    parser.add_argument(
+        "--timeout", type=int, default=300, help="Seconds to wait for manual login."
+    )
+    parser.add_argument(
+        "--browser",
+        default=None,
+        help="Optional browser executable path, e.g. /usr/bin/google-chrome.",
+    )
     return parser.parse_args()
 
 
@@ -72,7 +85,9 @@ def summarize_storage_state(path):
         if "qwen" in (origin.get("origin") or ""):
             local_storage = origin.get("localStorage") or []
             print(f"qwen_localStorage_count={len(local_storage)}")
-            print(f"qwen_localStorage_keys={sorted(item.get('name', '') for item in local_storage)}")
+            print(
+                f"qwen_localStorage_keys={sorted(item.get('name', '') for item in local_storage)}"
+            )
 
 
 def main():
@@ -93,10 +108,14 @@ def main():
 
         context = playwright.chromium.launch_persistent_context(**launch_kwargs)
         page = context.pages[0] if context.pages else context.new_page()
-        page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
+        page.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"
+        )
         page.goto(QWEN_URL, wait_until="domcontentloaded", timeout=120_000)
 
-        print("请在打开的浏览器中完成 Qwen 登录，可使用密码、GitHub、二维码等任意网页登录方式。")
+        print(
+            "请在打开的浏览器中完成 Qwen 登录，可使用密码、GitHub、二维码等任意网页登录方式。"
+        )
         print(f"登录成功后会导出到: {output}")
         print(f"等待登录，超时时间 {args.timeout} 秒...")
 

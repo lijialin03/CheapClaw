@@ -1,6 +1,4 @@
-# agent_core/workspace.py
 from pathlib import Path
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -29,7 +27,11 @@ class Workspace:
         return resolved
 
     def _reject_sensitive(self, path: Path) -> None:
-        relative_parts = path.relative_to(self.root).parts if self._is_inside_root(path) else path.parts
+        relative_parts = (
+            path.relative_to(self.root).parts
+            if self._is_inside_root(path)
+            else path.parts
+        )
         if ".git" in relative_parts:
             raise WorkspaceError("拒绝访问 .git 目录")
         if ".cheapclaw" in relative_parts:

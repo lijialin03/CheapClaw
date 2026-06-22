@@ -46,7 +46,9 @@ def test_short_prompts_use_send_text(tmp_path):
 
 def test_long_prompts_use_send_text_when_file_transport_disabled(tmp_path):
     client = FakeClient()
-    transport = make_transport(client, tmp_path / "uploads", enabled=False, max_text_chars=3)
+    transport = make_transport(
+        client, tmp_path / "uploads", enabled=False, max_text_chars=3
+    )
 
     assert transport.send("very long prompt") == "text response"
 
@@ -60,7 +62,9 @@ def test_long_prompts_write_local_temp_file_and_use_send_file(tmp_path):
     events = []
     callback_events = []
     upload_dir = tmp_path / "uploads"
-    transport = make_transport(client, upload_dir, enabled=True, max_text_chars=3, events=events)
+    transport = make_transport(
+        client, upload_dir, enabled=True, max_text_chars=3, events=events
+    )
 
     assert transport.send("very long prompt", callback_events.append) == "file response"
 

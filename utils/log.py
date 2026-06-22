@@ -1,4 +1,3 @@
-# utils.py
 import os
 import sys
 import time
@@ -49,7 +48,9 @@ class Logger:
         formatted_msg = f"[{timestamp}] [{level}] [{self.name}] {msg}"
         if self.console:
             print(formatted_msg, *args, **kwargs)
-        log_file = os.path.join(self.log_dir, f"{datetime.now().strftime('%Y%m%d')}.log")
+        log_file = os.path.join(
+            self.log_dir, f"{datetime.now().strftime('%Y%m%d')}.log"
+        )
         try:
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write(formatted_msg + "\n")
@@ -105,6 +106,7 @@ class Logger:
 
 _default_logger = None
 
+
 def get_logger(
     name: str = "Logger",
     log_dir: str = "logs",
@@ -114,5 +116,7 @@ def get_logger(
 ) -> Logger:
     global _default_logger
     if _default_logger is None:
-        _default_logger = Logger(name, log_dir, screenshot_dir, console=console, log_level=log_level)
+        _default_logger = Logger(
+            name, log_dir, screenshot_dir, console=console, log_level=log_level
+        )
     return _default_logger

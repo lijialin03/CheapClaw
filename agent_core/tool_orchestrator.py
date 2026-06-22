@@ -1,4 +1,3 @@
-# agent_core/tool_orchestrator.py
 import json
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
@@ -40,11 +39,15 @@ class ToolOrchestrator:
     def has_pending_confirmation(self) -> bool:
         return self.pending_command_confirmation is not None
 
-    def run_turn(self, user_input: str, event_callback: Optional[Callable[[dict], None]] = None) -> Optional[str]:
+    def run_turn(
+        self, user_input: str, event_callback: Optional[Callable[[dict], None]] = None
+    ) -> Optional[str]:
         use_terminal_tools = self.should_use_terminal_tools(user_input, event_callback)
         if not use_terminal_tools:
             return None
-        return self._continue_tool_orchestration(user_input, [], False, use_terminal_tools, event_callback)
+        return self._continue_tool_orchestration(
+            user_input, [], False, use_terminal_tools, event_callback
+        )
 
     def handle_pending_command_confirmation(
         self,
@@ -67,13 +70,16 @@ class ToolOrchestrator:
         action = {"action": "command", "command": pending.command, "argv": pending.argv}
         observation = self._execute_action(action, event_callback)
         observations = [*pending.observations, observation]
-        return self._continue_tool_orchestration(
-            pending.user_input or f"用户已确认执行命令: {pending.command}",
-            observations,
-            True,
-            pending.explicit_workspace_request,
-            event_callback,
-        ) or "命令已执行。"
+        return (
+            self._continue_tool_orchestration(
+                pending.user_input or f"用户已确认执行命令: {pending.command}",
+                observations,
+                True,
+                pending.explicit_workspace_request,
+                event_callback,
+            )
+            or "命令已执行。"
+        )
 
     def should_use_terminal_tools(
         self,
@@ -82,7 +88,11 @@ class ToolOrchestrator:
     ) -> bool:
         self.emit_event(event_callback, {"type": "tool_routing"})
         try:
-            reply = self.client.send_text(self._build_tool_router_prompt(user_input)).strip().lower()
+            reply = (
+                self.client.send_text(self._build_tool_router_prompt(user_input))
+                .strip()
+                .lower()
+            )
         except Exception:
             return self._looks_like_workspace_read_request(user_input)
         if reply in self.config.tool_router_positive_replies:
@@ -113,7 +123,9 @@ class ToolOrchestrator:
             prompt = self._build_tool_planner_prompt(user_input, observations)
             reply = self.client.send_text(prompt)
             try:
-                action = self.tool_runner.validate_action(self.tool_runner.parse_planner_reply(reply))
+                action = self.tool_runner.validate_action(
+                    self.tool_runner.parse_planner_reply(reply)
+                )
             except ValueError as exc:
                 if not used_tool and not explicit_workspace_request:
                     return None
@@ -122,9 +134,14 @@ class ToolOrchestrator:
             if action["action"] == "final":
                 if not used_tool and not explicit_workspace_request:
                     return None
-                if (used_tool or explicit_workspace_request) and not action.get("explicit_final", True):
+                if (used_tool or explicit_workspace_request) and not action.get(
+                    "explicit_final", True
+                ):
                     return "终端命令规划器未返回有效命令，未执行任何本地命令。"
-                return action["answer"].strip() or "已完成终端读取，但工具规划器没有生成回答。"
+                return (
+                    action["answer"].strip()
+                    or "已完成终端读取，但工具规划器没有生成回答。"
+                )
 
             if self._is_file_replace_action(action):
                 return self._prepare_file_replace_confirmation(
@@ -154,9 +171,15 @@ class ToolOrchestrator:
 
         return self._force_final_answer(user_input, observations, event_callback)
 
-    def _build_tool_planner_prompt(self, user_input: str, observations: list[dict], force_final: bool = False) -> str:
+    def _build_tool_planner_prompt(
+        self, user_input: str, observations: list[dict], force_final: bool = False
+    ) -> str:
         observations_json = json.dumps(observations, ensure_ascii=False, indent=2)
-        force_final_rule = "\n- 本轮已经达到终端命令调用上限，必须返回 final: 最终回答，不得继续请求命令。" if force_final else ""
+        force_final_rule = (
+            "\n- 本轮已经达到终端命令调用上限，必须返回 final: 最终回答，不得继续请求命令。"
+            if force_final
+            else ""
+        )
         examples = "\n".join(self.tool_runner.command_examples())
         policy = self.tool_runner.command_policy_summary()
         return render_prompt(
@@ -182,7 +205,9 @@ class ToolOrchestrator:
         event_callback: Optional[Callable[[dict], None]] = None,
     ) -> str:
         self.emit_event(event_callback, {"type": "file_edit_drafting"})
-        content_prompt = self._build_file_content_prompt(user_input, action["argv"][2], observations)
+        content_prompt = self._build_file_content_prompt(
+            user_input, action["argv"][2], observations
+        )
         content = self._strip_file_content(self.client.send_text(content_prompt))
         prepared = self.tool_runner.prepare_file_replace(action["command"], content)
         self.pending_command_confirmation = PendingCommandConfirmation(
@@ -194,7 +219,10 @@ class ToolOrchestrator:
             explicit_workspace_request=explicit_workspace_request,
             file_edit_id=prepared["edit_id"],
         )
-        diff_preview = prepared["diff"][: self.config.file_edit_diff_preview_chars] or "（新旧内容无差异）"
+        diff_preview = (
+            prepared["diff"][: self.config.file_edit_diff_preview_chars]
+            or "（新旧内容无差异）"
+        )
         return (
             f"准备修改文件 `{prepared['path']}`（{prepared['old_lines']} 行 -> {prepared['new_lines']} 行）。\n"
             "执行前会自动创建 checkpoint。Diff 预览:\n"
@@ -206,7 +234,9 @@ class ToolOrchestrator:
         confirm_reply = self.config.confirm_command_replies[0]
         return f"请回复 {confirm_reply} 执行，或回复 {self.config.cancel_command_reply} 取消。"
 
-    def _build_file_content_prompt(self, user_input: str, path: str, observations: list[dict]) -> str:
+    def _build_file_content_prompt(
+        self, user_input: str, path: str, observations: list[dict]
+    ) -> str:
         observations_json = json.dumps(observations, ensure_ascii=False, indent=2)
         return render_prompt(
             "file_replace.md",
@@ -225,25 +255,37 @@ class ToolOrchestrator:
         event_callback: Optional[Callable[[dict], None]] = None,
     ) -> str:
         self.emit_event(event_callback, {"type": "tool_planning"})
-        prompt = self._build_tool_planner_prompt(user_input, observations, force_final=True)
+        prompt = self._build_tool_planner_prompt(
+            user_input, observations, force_final=True
+        )
         reply = self.client.send_text(prompt)
         try:
-            action = self.tool_runner.validate_action(self.tool_runner.parse_planner_reply(reply))
+            action = self.tool_runner.validate_action(
+                self.tool_runner.parse_planner_reply(reply)
+            )
         except ValueError:
             return self.config.tool_step_limit_message
         if action["action"] == "final":
             return action["answer"].strip() or self.config.tool_step_limit_message
         return self.config.tool_step_limit_message
 
-    def _execute_action(self, action: dict, event_callback: Optional[Callable[[dict], None]] = None) -> dict:
+    def _execute_action(
+        self, action: dict, event_callback: Optional[Callable[[dict], None]] = None
+    ) -> dict:
         self._emit_tool_event(action, event_callback)
         observation = self.tool_runner.execute(action)
         return self.tool_runner.truncate_observation(observation)
 
-    def _emit_tool_event(self, action: dict, event_callback: Optional[Callable[[dict], None]] = None) -> None:
+    def _emit_tool_event(
+        self, action: dict, event_callback: Optional[Callable[[dict], None]] = None
+    ) -> None:
         command = action.get("command", "")
         argv = action.get("argv", [])
         if argv and argv[0] == "cd":
-            self.emit_event(event_callback, {"type": "tool_changing_dir", "command": command})
+            self.emit_event(
+                event_callback, {"type": "tool_changing_dir", "command": command}
+            )
         else:
-            self.emit_event(event_callback, {"type": "tool_running_command", "command": command})
+            self.emit_event(
+                event_callback, {"type": "tool_running_command", "command": command}
+            )

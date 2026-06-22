@@ -171,7 +171,9 @@ def test_agent_supports_minimal_text_client_without_optional_lifecycle_methods()
     assert memory.closed == 1
 
 
-def test_agent_file_transport_contract_only_requires_send_file_for_long_prompt(tmp_path):
+def test_agent_file_transport_contract_only_requires_send_file_for_long_prompt(
+    tmp_path,
+):
     client = MinimalFileClient("file answer")
     memory = FakeMemory()
     agent = make_agent(

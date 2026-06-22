@@ -1,4 +1,3 @@
-# agent_core/file_transport.py
 from pathlib import Path
 from typing import Any, Callable, Optional
 from uuid import uuid4
@@ -21,7 +20,9 @@ class PromptTransport:
         self.file_transport_enabled = file_transport_enabled
         self.emit_event = emit_event
 
-    def send(self, prompt: str, event_callback: Optional[Callable[[dict], None]] = None) -> str:
+    def send(
+        self, prompt: str, event_callback: Optional[Callable[[dict], None]] = None
+    ) -> str:
         if self.file_transport_enabled and len(prompt) > self.max_text_chars:
             self.emit_event(event_callback, {"type": "file_transporting"})
             prompt_file = self._write_upload_prompt(prompt)

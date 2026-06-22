@@ -47,12 +47,19 @@ def test_message_round_trip_and_conversation_buffer_context():
 
 def test_memory_compressor_and_key_info_store():
     compressor = MemoryCompressor(max_summaries=2)
-    assert compressor.compress("old text", lambda prompt: " summary one ") == "summary one"
+    assert (
+        compressor.compress("old text", lambda prompt: " summary one ") == "summary one"
+    )
     compressor.compress("old text", lambda prompt: "summary two")
     compressor.compress("old text", lambda prompt: "summary three")
     assert len(compressor.summaries) == 2
     assert "【历史摘要】" in compressor.get_context()
-    assert compressor.compress("old text", lambda prompt: (_ for _ in ()).throw(RuntimeError())) == ""
+    assert (
+        compressor.compress(
+            "old text", lambda prompt: (_ for _ in ()).throw(RuntimeError())
+        )
+        == ""
+    )
 
     store = KeyInfoStore()
     store.set("language", "python")
@@ -73,8 +80,12 @@ def test_memory_selects_relevant_context_and_skips_generic_queries(tmp_path):
     )
     memory.set_key_info("python", "Use pytest for CheapClaw tests")
     memory.set_key_info("frontend", "Use vite")
-    memory.compressor.summaries.append({"content": "pytest covered memory behavior", "timestamp": 1})
-    memory.compressor.summaries.append({"content": "browser login state", "timestamp": 2})
+    memory.compressor.summaries.append(
+        {"content": "pytest covered memory behavior", "timestamp": 1}
+    )
+    memory.compressor.summaries.append(
+        {"content": "browser login state", "timestamp": 2}
+    )
     memory.add_user_message("hello")
     memory.add_assistant_message("hi")
 
@@ -111,7 +122,10 @@ def test_memory_auto_compress_records_events_with_fake_llm():
 
     assert memory.compressor.summaries
     assert memory.buffer.message_count() <= 2
-    assert {event["type"] for event in events} >= {"auto_compressing", "auto_compressed"}
+    assert {event["type"] for event in events} >= {
+        "auto_compressing",
+        "auto_compressed",
+    }
 
 
 def test_memory_auto_trim_records_events_without_llm():
@@ -144,7 +158,9 @@ def test_memory_compress_with_summary_model():
             self.prompts.append(prompt)
             return "model summary"
 
-    memory = Memory(config=MemoryConfig(min_messages_to_compress=4, recent_messages_to_keep=2))
+    memory = Memory(
+        config=MemoryConfig(min_messages_to_compress=4, recent_messages_to_keep=2)
+    )
     for index in range(2):
         memory.add_user_message(f"u{index}")
         memory.add_assistant_message(f"a{index}")
@@ -158,7 +174,9 @@ def test_memory_compress_with_summary_model():
 
 def test_memory_save_load_clear_and_close_session_archive(tmp_path):
     persist_path = tmp_path / "memory.json"
-    memory = Memory(persist_path=persist_path, llm_call=lambda prompt: "session summary")
+    memory = Memory(
+        persist_path=persist_path, llm_call=lambda prompt: "session summary"
+    )
     memory.set_key_info("tool", "pytest")
     memory.add_user_message("hello")
     memory.add_assistant_message("world")

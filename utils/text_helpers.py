@@ -1,4 +1,3 @@
-# utils/text_helpers.py
 import json
 import re
 
@@ -51,11 +50,19 @@ def diagnose_structured_response(text: str) -> tuple[dict | None, str, str]:
             except json.JSONDecodeError:
                 data = _parse_rendered_structured_response(raw)
                 if data is None:
-                    return None, f"json_decode_error:{exc.msg}:line={exc.lineno}:col={exc.colno}", raw
+                    return (
+                        None,
+                        f"json_decode_error:{exc.msg}:line={exc.lineno}:col={exc.colno}",
+                        raw,
+                    )
         else:
             data = _parse_rendered_structured_response(raw)
             if data is None:
-                return None, f"json_decode_error:{exc.msg}:line={exc.lineno}:col={exc.colno}", raw
+                return (
+                    None,
+                    f"json_decode_error:{exc.msg}:line={exc.lineno}:col={exc.colno}",
+                    raw,
+                )
     parts = data.get("parts") if isinstance(data, dict) else None
     if not isinstance(parts, list) or not parts:
         return None, "invalid_schema:parts", raw
@@ -83,12 +90,14 @@ def _parse_rendered_structured_response(text: str) -> dict | None:
     parts: list[dict] = []
     for match in re.finditer(r'"type"\s*:\s*"(text|code)"', text):
         part_type = match.group(1)
-        content_match = re.search(r'"content"\s*:\s*"', text[match.end():])
+        content_match = re.search(r'"content"\s*:\s*"', text[match.end() :])
         if not content_match:
             return None
         content_start = match.end() + content_match.end()
-        next_part = re.search(r'\n\s*}\s*,\s*\n\s*\{\s*\n\s*"type"\s*:', text[content_start:])
-        final_part = re.search(r'\n\s*}\s*\n\s*]\s*\n\s*}\s*$', text[content_start:])
+        next_part = re.search(
+            r'\n\s*}\s*,\s*\n\s*\{\s*\n\s*"type"\s*:', text[content_start:]
+        )
+        final_part = re.search(r"\n\s*}\s*\n\s*]\s*\n\s*}\s*$", text[content_start:])
         if next_part:
             content_end = content_start + next_part.start()
         elif final_part:
@@ -98,7 +107,9 @@ def _parse_rendered_structured_response(text: str) -> dict | None:
         content = _decode_rendered_json_string_content(text[content_start:content_end])
         part = {"type": part_type, "content": content}
         if part_type == "code":
-            language_match = re.search(r'"language"\s*:\s*"([^"\n\r]*)"', text[match.end():content_start])
+            language_match = re.search(
+                r'"language"\s*:\s*"([^"\n\r]*)"', text[match.end() : content_start]
+            )
             if language_match:
                 part["language"] = language_match.group(1)
         parts.append(part)
@@ -112,7 +123,7 @@ def _decode_rendered_json_string_content(text: str) -> str:
     try:
         return json.loads(f'"{_escape_control_chars_in_json_strings(content)}"')
     except json.JSONDecodeError:
-        return content.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
+        return content.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", "\t")
 
 
 def _escape_control_chars_in_json_strings(text: str) -> str:
@@ -203,9 +214,26 @@ def restore_rendered_code_blocks(text: str) -> str:
     restored: list[str] = []
     index = 0
     languages = {
-        "python", "py", "javascript", "typescript", "json", "markdown", "md",
-        "html", "css", "bash", "shell", "sh", "yaml", "yml", "toml", "ini",
-        "cfg", "conf", "text", "txt",
+        "python",
+        "py",
+        "javascript",
+        "typescript",
+        "json",
+        "markdown",
+        "md",
+        "html",
+        "css",
+        "bash",
+        "shell",
+        "sh",
+        "yaml",
+        "yml",
+        "toml",
+        "ini",
+        "cfg",
+        "conf",
+        "text",
+        "txt",
     }
 
     while index < len(lines):
@@ -244,16 +272,27 @@ def restore_rendered_code_blocks(text: str) -> str:
 def _looks_like_rendered_code(language: str, code_lines: list[str]) -> bool:
     code = "\n".join(code_lines)
     if language in {"python", "py"}:
-        return _looks_like_python_code(code) or any(token in code for token in ("=", "with ", "open(", "b\"", "print("))
+        return _looks_like_python_code(code) or any(
+            token in code for token in ("=", "with ", "open(", 'b"', "print(")
+        )
     if language in {"yaml", "yml"}:
         return any(":" in line or line.lstrip().startswith("- ") for line in code_lines)
     if language in {"toml", "ini", "cfg", "conf"}:
         return any("=" in line or line.strip().startswith("[") for line in code_lines)
     if language in {"markdown", "md"}:
-        return any(line.lstrip().startswith(("#", "- ", "* ", ">", "```")) for line in code_lines)
+        return any(
+            line.lstrip().startswith(("#", "- ", "* ", ">", "```"))
+            for line in code_lines
+        )
     if language in {"text", "txt"}:
         return bool(code.strip())
-    return bool(re.search(r"[{}();=<>]|^\s*(const|let|var|function|import|export|class|def|if|for|while)\b", code, re.MULTILINE))
+    return bool(
+        re.search(
+            r"[{}();=<>]|^\s*(const|let|var|function|import|export|class|def|if|for|while)\b",
+            code,
+            re.MULTILINE,
+        )
+    )
 
 
 def strip_code_fence(text: str, preserve_inner: bool = False) -> str:
@@ -276,9 +315,26 @@ def clean_generated_file_content(text: str) -> str:
     while lines and not lines[0].strip():
         lines.pop(0)
     if lines and lines[0].strip().lower() in {
-        "python", "py", "javascript", "typescript", "json", "markdown", "md",
-        "html", "css", "yaml", "yml", "toml", "ini", "cfg", "conf", "text", "txt",
-        "bash", "shell", "sh",
+        "python",
+        "py",
+        "javascript",
+        "typescript",
+        "json",
+        "markdown",
+        "md",
+        "html",
+        "css",
+        "yaml",
+        "yml",
+        "toml",
+        "ini",
+        "cfg",
+        "conf",
+        "text",
+        "txt",
+        "bash",
+        "shell",
+        "sh",
     }:
         lines.pop(0)
     cleaned = "\n".join(line for line in lines if not line.strip().isdigit())
@@ -288,7 +344,11 @@ def clean_generated_file_content(text: str) -> str:
 
 
 def _looks_like_python_code(text: str) -> bool:
-    return bool(re.search(r"(?m)^(from\s+\S+\s+import\s+|import\s+\S+|class\s+\w+|def\s+\w+)", text))
+    return bool(
+        re.search(
+            r"(?m)^(from\s+\S+\s+import\s+|import\s+\S+|class\s+\w+|def\s+\w+)", text
+        )
+    )
 
 
 def _restore_python_spacing(text: str) -> str:
@@ -304,8 +364,12 @@ def _restore_python_spacing(text: str) -> str:
             continue
 
         indent = len(line) - len(line.lstrip(" "))
-        is_import = indent == 0 and (stripped.startswith("import ") or stripped.startswith("from "))
-        is_top_level_def = indent == 0 and (stripped.startswith("class ") or stripped.startswith("def "))
+        is_import = indent == 0 and (
+            stripped.startswith("import ") or stripped.startswith("from ")
+        )
+        is_top_level_def = indent == 0 and (
+            stripped.startswith("class ") or stripped.startswith("def ")
+        )
         is_method_def = indent > 0 and stripped.startswith("def ")
 
         if is_top_level_def:

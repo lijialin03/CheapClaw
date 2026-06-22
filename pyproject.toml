@@ -34,3 +34,6 @@ pythonpath = ["."]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "-q"
+
+[tool.isort]
+profile = "black"

@@ -1,4 +1,3 @@
-# qwen.py
 from pathlib import Path
 
 from agent_core.config import BrowserConfig
@@ -15,6 +14,7 @@ BROWSER_ARGS = [
 
 class QwenAdapter(BrowserFrontendAdapter):
     """Qwen-specific DOM selectors and browser interactions."""
+
     def default_url(self) -> str:
         return "https://chat.qwen.ai/"
 
@@ -28,7 +28,9 @@ class QwenAdapter(BrowserFrontendAdapter):
         )
 
     def wait_until_ready(self) -> None:
-        self.page.wait_for_selector(".message-input-textarea", timeout=self.config.timeout)
+        self.page.wait_for_selector(
+            ".message-input-textarea", timeout=self.config.timeout
+        )
         self.page.wait_for_timeout(1000)
 
     def after_page_loaded(self) -> None:
@@ -36,7 +38,9 @@ class QwenAdapter(BrowserFrontendAdapter):
 
     def latest_reply_text(self) -> str:
         try:
-            reply_locator = self.page.locator(".qwen-chat-message-assistant .response-message-content")
+            reply_locator = self.page.locator(
+                ".qwen-chat-message-assistant .response-message-content"
+            )
             if reply_locator.count() == 0:
                 return ""
             return reply_locator.last.inner_text(timeout=1000).strip()
@@ -45,13 +49,19 @@ class QwenAdapter(BrowserFrontendAdapter):
 
     def is_reply_complete(self) -> bool:
         try:
-            return bool(self.page.evaluate(load_asset_text("qwen/scripts/reply_complete.js")))
+            return bool(
+                self.page.evaluate(load_asset_text("qwen/scripts/reply_complete.js"))
+            )
         except Exception:
             return False
 
     def is_generation_in_progress(self) -> bool:
         try:
-            return bool(self.page.evaluate(load_asset_text("qwen/scripts/generation_in_progress.js")))
+            return bool(
+                self.page.evaluate(
+                    load_asset_text("qwen/scripts/generation_in_progress.js")
+                )
+            )
         except Exception:
             return False
 
@@ -66,7 +76,9 @@ class QwenAdapter(BrowserFrontendAdapter):
 
             self.logger.warning("检测到双回复评测 UI，默认选择第一个回复")
             self.logger.screenshot("reply_preference_ui", full_page=True)
-            result = self.page.evaluate(load_asset_text("qwen/scripts/reply_preference.js"))
+            result = self.page.evaluate(
+                load_asset_text("qwen/scripts/reply_preference.js")
+            )
             reply = (result or {}).get("reply", "").strip()
             if not (result or {}).get("clicked"):
                 self.logger.warning("未能点击第一个偏好回复按钮")
@@ -76,7 +88,12 @@ class QwenAdapter(BrowserFrontendAdapter):
             self.logger.debug(f"处理双回复评测 UI 失败: {type(e).__name__}: {e}")
             return ""
 
-    def before_text_send(self, text: str, auto_remove_limit: bool = True, auto_close_guidance: bool = True):
+    def before_text_send(
+        self,
+        text: str,
+        auto_remove_limit: bool = True,
+        auto_close_guidance: bool = True,
+    ):
         textarea = self.page.locator(".message-input-textarea")
         textarea.wait_for(state="visible", timeout=self.config.timeout)
 
@@ -128,7 +145,9 @@ class QwenAdapter(BrowserFrontendAdapter):
                 upload_item.click(timeout=5000)
             chooser_info.value.set_files(str(file_path))
         except Exception as e:
-            self.logger.debug(f"上传菜单方式失败，回退隐藏 input: {type(e).__name__}: {e}")
+            self.logger.debug(
+                f"上传菜单方式失败，回退隐藏 input: {type(e).__name__}: {e}"
+            )
             self.logger.screenshot("send_file_upload_menu_failed", full_page=False)
             self._upload_file_by_input(file_path)
 
@@ -146,9 +165,7 @@ class QwenAdapter(BrowserFrontendAdapter):
 
     def _upload_attachment_item(self):
         """返回上传附件菜单项；该菜单可能挂载在 body 弹层中。"""
-        return self.page.locator(
-            "text=上传附件"
-        ).first
+        return self.page.locator("text=上传附件").first
 
     def _upload_file_by_input(self, file_path: Path) -> None:
         file_input = self.page.locator("#filesUpload")
@@ -198,7 +215,9 @@ class QwenAdapter(BrowserFrontendAdapter):
         had_text: bool = True,
     ):
         textarea = self.page.locator(".message-input-textarea")
-        send_button = self.page.locator("button.send-button:not([disabled]), .send-button:not([disabled])").first
+        send_button = self.page.locator(
+            "button.send-button:not([disabled]), .send-button:not([disabled])"
+        ).first
 
         if prefer_button:
             send_attempts = ("button", "enter")
@@ -222,7 +241,9 @@ class QwenAdapter(BrowserFrontendAdapter):
 
         raise RuntimeError("发送失败：未检测到新用户消息或发送完成状态")
 
-    def _is_sent(self, previous_user_message_count: int = None, had_text: bool = True) -> bool:
+    def _is_sent(
+        self, previous_user_message_count: int = None, had_text: bool = True
+    ) -> bool:
         """优先通过用户消息数量增加判断发送成功，文本消息可回退到输入框清空。"""
         if previous_user_message_count is not None:
             try:
@@ -319,7 +340,12 @@ class QwenClient(BrowserModelClient):
             storage_state_path=storage_state_path,
         )
 
-    def send_text(self, text: str, auto_remove_limit: bool = True, auto_close_guidance: bool = True) -> str:
+    def send_text(
+        self,
+        text: str,
+        auto_remove_limit: bool = True,
+        auto_close_guidance: bool = True,
+    ) -> str:
         return super().send_text(
             text,
             auto_remove_limit=auto_remove_limit,

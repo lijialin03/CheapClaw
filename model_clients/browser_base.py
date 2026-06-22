@@ -3,8 +3,9 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-from agent_core.config import BrowserConfig
 from playwright.sync_api import sync_playwright
+
+from agent_core.config import BrowserConfig
 from utils import get_logger
 
 
@@ -106,11 +107,15 @@ class BrowserSession:
             args=browser_args,
         )
         if storage_state_path:
-            self.context = self.browser.new_context(storage_state=str(storage_state_path))
+            self.context = self.browser.new_context(
+                storage_state=str(storage_state_path)
+            )
             self.logger.info(f"已加载 storage_state 登录状态: {storage_state_path}")
         else:
             self.context = self.browser.new_context()
-            self.logger.warning(self._missing_login_state_message(adapter, reason="未找到登录态文件"))
+            self.logger.warning(
+                self._missing_login_state_message(adapter, reason="未找到登录态文件")
+            )
 
         self.page = self.context.new_page()
         if self.config.init_script:
@@ -118,11 +123,17 @@ class BrowserSession:
         self.logger.attach_page(self.page)
         self.logger.info("Starting browser...")
         self.page.goto(url, wait_until="domcontentloaded", timeout=self.config.timeout)
-        self._add_notice("info", "当前处于测试版，不太稳定，遇到错误回答时请首先尝试重新提问，或退出并重启session")
+        self._add_notice(
+            "info",
+            "当前处于测试版，不太稳定，遇到错误回答时请首先尝试重新提问，或退出并重启session",
+        )
 
         logged_in = adapter.is_logged_in()
         if not logged_in:
-            self._add_notice("warning", self._missing_login_state_message(adapter, reason="未检测到有效登录态"))
+            self._add_notice(
+                "warning",
+                self._missing_login_state_message(adapter, reason="未检测到有效登录态"),
+            )
             if not self.config.headless:
                 self.wait_for_login(adapter)
                 self.save_storage_state()
@@ -134,7 +145,9 @@ class BrowserSession:
             adapter.after_page_loaded()
             self.logger.debug("Page loaded")
         else:
-            self.logger.warning("未登录 fallback 模式已启动，后续模型交互可能无法正常工作。")
+            self.logger.warning(
+                "未登录 fallback 模式已启动，后续模型交互可能无法正常工作。"
+            )
 
     def close(self) -> None:
         if self.context:
@@ -167,9 +180,15 @@ class BrowserSession:
 
     def _storage_state_path_text(self) -> str:
         storage_state_path = self.config.storage_state_path
-        return str(storage_state_path) if storage_state_path else "config/storage_state.json"
+        return (
+            str(storage_state_path)
+            if storage_state_path
+            else "config/storage_state.json"
+        )
 
-    def _missing_login_state_message(self, adapter: BrowserFrontendAdapter, reason: str) -> str:
+    def _missing_login_state_message(
+        self, adapter: BrowserFrontendAdapter, reason: str
+    ) -> str:
         storage_state_path = self._storage_state_path_text()
         return (
             f"{reason}，将以未登录模式启动。\n"
@@ -201,7 +220,13 @@ class BrowserSession:
 class BrowserConversationWorkflow:
     """Shared model-message workflows built from frontend adapter operations."""
 
-    def __init__(self, session: BrowserSession, adapter: BrowserFrontendAdapter, config: BrowserClientConfig, logger):
+    def __init__(
+        self,
+        session: BrowserSession,
+        adapter: BrowserFrontendAdapter,
+        config: BrowserClientConfig,
+        logger,
+    ):
         self.session = session
         self.adapter = adapter
         self.config = config
@@ -211,7 +236,9 @@ class BrowserConversationWorkflow:
     def page(self):
         return self.session.page
 
-    def wait_for_reply(self, previous_assistant_message_count: int | None = None) -> str:
+    def wait_for_reply(
+        self, previous_assistant_message_count: int | None = None
+    ) -> str:
         deadline = time.time() + self.config.timeout / 1000
         last_reply = ""
         completed_reply = ""
@@ -225,7 +252,8 @@ class BrowserConversationWorkflow:
                 current_assistant_message_count = self.adapter.assistant_message_count()
                 if (
                     current_assistant_message_count is not None
-                    and current_assistant_message_count < previous_assistant_message_count
+                    and current_assistant_message_count
+                    < previous_assistant_message_count
                 ):
                     self.logger.debug(
                         "assistant 回复节点数量回退，重置等待 baseline: "
@@ -235,7 +263,8 @@ class BrowserConversationWorkflow:
                     logged_waiting_for_baseline = False
                 baseline_advanced = (
                     current_assistant_message_count is not None
-                    and current_assistant_message_count > previous_assistant_message_count
+                    and current_assistant_message_count
+                    > previous_assistant_message_count
                 )
                 if not baseline_advanced and not logged_waiting_for_baseline:
                     self.logger.debug(
@@ -256,12 +285,19 @@ class BrowserConversationWorkflow:
                     completed_at = None
                     self.logger.debug(f"检测到回复更新，当前长度 {len(reply)}")
 
-                if reply and self.adapter.is_reply_complete() and not self.adapter.is_generation_in_progress():
+                if (
+                    reply
+                    and self.adapter.is_reply_complete()
+                    and not self.adapter.is_generation_in_progress()
+                ):
                     now = time.time()
                     if completed_reply != reply:
                         completed_reply = reply
                         completed_at = now
-                    elif completed_at is not None and now - completed_at >= stable_completion_seconds:
+                    elif (
+                        completed_at is not None
+                        and now - completed_at >= stable_completion_seconds
+                    ):
                         self.logger.debug(f"回复完成，长度 {len(reply)}")
                         return reply
                 else:
@@ -272,16 +308,22 @@ class BrowserConversationWorkflow:
 
         self.logger.screenshot("wait_for_reply_timeout", full_page=True)
         if last_reply:
-            self.logger.warning(f"等待回复完成超时，返回已捕获回复，长度 {len(last_reply)}")
+            self.logger.warning(
+                f"等待回复完成超时，返回已捕获回复，长度 {len(last_reply)}"
+            )
             return last_reply
         raise TimeoutError("等待 AI 回复超时，请注意是否达到今日额度上限")
 
     def send_text(self, text: str, **options) -> str:
         send_kwargs = self._as_kwargs(self.adapter.before_text_send(text, **options))
-        previous_assistant_message_count = send_kwargs.pop("previous_assistant_message_count", None)
+        previous_assistant_message_count = send_kwargs.pop(
+            "previous_assistant_message_count", None
+        )
         self.adapter.send_current_message(**send_kwargs)
         self.logger.debug("消息已发送，等待 AI 回复...")
-        return self.wait_for_reply(previous_assistant_message_count=previous_assistant_message_count)
+        return self.wait_for_reply(
+            previous_assistant_message_count=previous_assistant_message_count
+        )
 
     def send_file(self, file_path: str, prompt: str = None) -> str:
         resolved_path = Path(file_path).expanduser().resolve()
@@ -291,8 +333,12 @@ class BrowserConversationWorkflow:
             raise ValueError(f"不是普通文件: {resolved_path}")
 
         try:
-            send_kwargs = self._as_kwargs(self.adapter.before_file_send(resolved_path, prompt=prompt))
-            previous_assistant_message_count = send_kwargs.pop("previous_assistant_message_count", None)
+            send_kwargs = self._as_kwargs(
+                self.adapter.before_file_send(resolved_path, prompt=prompt)
+            )
+            previous_assistant_message_count = send_kwargs.pop(
+                "previous_assistant_message_count", None
+            )
             self.logger.screenshot("send_file_before_upload", full_page=False)
             self.adapter.upload_file(resolved_path)
             self.logger.info(f"已上传文件: {resolved_path}")
@@ -309,7 +355,9 @@ class BrowserConversationWorkflow:
             self.adapter.send_current_message(**send_kwargs)
             self.logger.screenshot("send_file_after_send", full_page=False)
             self.logger.debug("已发送文件消息，等待 AI 回复...")
-            return self.wait_for_reply(previous_assistant_message_count=previous_assistant_message_count)
+            return self.wait_for_reply(
+                previous_assistant_message_count=previous_assistant_message_count
+            )
         except Exception:
             self.logger.screenshot("send_file_error", full_page=True)
             raise
@@ -342,7 +390,9 @@ class BrowserModelClient:
         base_config = config or BrowserConfig()
         resolved_storage_state_path = storage_state_path
         if resolved_storage_state_path is None:
-            resolved_storage_state_path = base_config.storage_state_path or self.DEFAULT_STORAGE_STATE_PATH
+            resolved_storage_state_path = (
+                base_config.storage_state_path or self.DEFAULT_STORAGE_STATE_PATH
+            )
         config = BrowserClientConfig(
             headless=base_config.headless if headless is None else headless,
             timeout=base_config.timeout if timeout is None else timeout,
@@ -359,7 +409,9 @@ class BrowserModelClient:
         self.adapter = adapter
         self.session = BrowserSession(config, self.logger)
         self.adapter.bind(self.session, config, self.logger)
-        self.workflow = BrowserConversationWorkflow(self.session, self.adapter, config, self.logger)
+        self.workflow = BrowserConversationWorkflow(
+            self.session, self.adapter, config, self.logger
+        )
 
     def _resolve_optional_path(self, path: str | Path | None) -> Path | None:
         return Path(path).expanduser().resolve() if path else None

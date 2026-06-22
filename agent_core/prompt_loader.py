@@ -1,8 +1,6 @@
-# agent_core/prompt_loader.py
 import re
 from functools import lru_cache
 from pathlib import Path
-
 
 PROMPT_DIR = Path(__file__).resolve().parent / "prompts"
 PLACEHOLDER_PATTERN = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}")

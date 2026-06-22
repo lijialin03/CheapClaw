@@ -38,9 +38,17 @@ class FakeRunner:
         if text.startswith("INVALID"):
             raise ValueError("invalid planner")
         if text.startswith("final:"):
-            return {"action": "final", "answer": text.split(":", 1)[1].strip(), "explicit_final": True}
+            return {
+                "action": "final",
+                "answer": text.split(":", 1)[1].strip(),
+                "explicit_final": True,
+            }
         if text.startswith("prose:"):
-            return {"action": "final", "answer": text.split(":", 1)[1].strip(), "explicit_final": False}
+            return {
+                "action": "final",
+                "answer": text.split(":", 1)[1].strip(),
+                "explicit_final": False,
+            }
         argv = text.split()
         return {"action": "command", "command": text, "argv": argv}
 
@@ -83,7 +91,13 @@ class FakeRunner:
 
     def commit_file_edit(self, edit_id):
         self.committed.append(edit_id)
-        return {"command": "file replace a.py", "ok": True, "stdout": "committed", "stderr": "", "returncode": 0}
+        return {
+            "command": "file replace a.py",
+            "ok": True,
+            "stdout": "committed",
+            "stderr": "",
+            "returncode": 0,
+        }
 
     def discard_file_edit(self, edit_id):
         self.discarded.append(edit_id)
@@ -117,9 +131,22 @@ def test_router_positive_and_negative_decisions():
 
 
 def test_router_fallback_on_errors_and_unknown_text():
-    assert make_orchestrator(QueueClient(error=True)).should_use_terminal_tools("please read agent_core") is True
-    assert make_orchestrator(QueueClient(["maybe"])).should_use_terminal_tools("hello") is False
-    assert make_orchestrator(QueueClient(["maybe"])).should_use_terminal_tools("show run.py") is True
+    assert (
+        make_orchestrator(QueueClient(error=True)).should_use_terminal_tools(
+            "please read agent_core"
+        )
+        is True
+    )
+    assert (
+        make_orchestrator(QueueClient(["maybe"])).should_use_terminal_tools("hello")
+        is False
+    )
+    assert (
+        make_orchestrator(QueueClient(["maybe"])).should_use_terminal_tools(
+            "show run.py"
+        )
+        is True
+    )
 
 
 def test_command_execution_loop_followed_by_final_answer():
@@ -132,7 +159,12 @@ def test_command_execution_loop_followed_by_final_answer():
 
     assert answer == "done"
     assert [action["command"] for action in runner.executed] == ["ls"]
-    assert [event["type"] for event in events] == ["tool_routing", "tool_planning", "tool_running_command", "tool_planning"]
+    assert [event["type"] for event in events] == [
+        "tool_routing",
+        "tool_planning",
+        "tool_running_command",
+        "tool_planning",
+    ]
 
 
 def test_invalid_planner_output_returns_none_for_non_explicit_tool_request():
@@ -168,12 +200,17 @@ def test_pending_confirmation_confirm_and_cancel_paths():
     runner = FakeRunner()
     orchestrator = make_orchestrator(client, runner=runner)
     orchestrator.run_turn("run script")
-    assert orchestrator.handle_pending_command_confirmation("no") == "已取消命令：python script.py"
+    assert (
+        orchestrator.handle_pending_command_confirmation("no")
+        == "已取消命令：python script.py"
+    )
     assert runner.executed == []
 
 
 def test_checkpoint_restore_confirmation_wording():
-    orchestrator = make_orchestrator(QueueClient(["terminal", "checkpoint restore ckpt-1"]))
+    orchestrator = make_orchestrator(
+        QueueClient(["terminal", "checkpoint restore ckpt-1"])
+    )
 
     prompt = orchestrator.run_turn("restore checkpoint")
 
@@ -184,7 +221,9 @@ def test_checkpoint_restore_confirmation_wording():
 def test_file_replace_generates_clean_content_truncated_preview_confirm_and_cancel():
     runner = FakeRunner()
     config = ToolConfig(file_edit_diff_preview_chars=10)
-    client = QueueClient(["terminal", "file replace a.py", "```python\n1 print('x')\n```"])
+    client = QueueClient(
+        ["terminal", "file replace a.py", "```python\n1 print('x')\n```"]
+    )
     orchestrator = make_orchestrator(client, runner=runner, config=config)
 
     prompt = orchestrator.run_turn("replace a.py")
@@ -211,14 +250,21 @@ def test_file_replace_generates_clean_content_truncated_preview_confirm_and_canc
 
 def test_file_replace_preserves_yaml_generated_content():
     runner = FakeRunner()
-    rendered_yaml = "yaml\n1\n2\n3\n4\nrepos:\n  - repo: x\n    hooks:\n      - id: check-yaml"
-    client = QueueClient(["terminal", "file replace .pre-commit-config.yaml", rendered_yaml])
+    rendered_yaml = (
+        "yaml\n1\n2\n3\n4\nrepos:\n  - repo: x\n    hooks:\n      - id: check-yaml"
+    )
+    client = QueueClient(
+        ["terminal", "file replace .pre-commit-config.yaml", rendered_yaml]
+    )
     orchestrator = make_orchestrator(client, runner=runner)
 
     prompt = orchestrator.run_turn("replace pre-commit config")
 
     assert "准备修改文件 `.pre-commit-config.yaml`" in prompt
-    assert runner.prepared[0]["content"] == "repos:\n  - repo: x\n    hooks:\n      - id: check-yaml"
+    assert (
+        runner.prepared[0]["content"]
+        == "repos:\n  - repo: x\n    hooks:\n      - id: check-yaml"
+    )
 
 
 def test_max_tool_step_forced_final_behavior():

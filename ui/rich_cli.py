@@ -1,7 +1,6 @@
-# ui/rich_cli.py
-from dataclasses import dataclass
 import re
 import readline
+from dataclasses import dataclass
 
 from pygments.util import ClassNotFound
 from rich.console import Console
@@ -13,7 +12,11 @@ from rich.text import Text
 
 from agent_core import Agent
 from ui.command_handler import CLICommandHandler
-from utils.text_helpers import parse_structured_response, remove_line_numbers_keep_markdown, restore_rendered_code_blocks
+from utils.text_helpers import (
+    parse_structured_response,
+    remove_line_numbers_keep_markdown,
+    restore_rendered_code_blocks,
+)
 
 
 @dataclass(frozen=True)
@@ -67,8 +70,10 @@ class TurnProgress:
 class RichCLI:
     HISTORY_FILE = ".cheapclaw/.cli_history"
     HELP_TEXT = "[dim]↑↓ 历史记录 | /help 帮助 | /clear 清屏 | /compress 压缩记忆 | /memory 记忆状态 | /exit 退出[/dim]"
-    CODE_BLOCK_PATTERN = r'(?s)```(\w+)?\n(.*?)```'
-    STRUCTURED_MARKDOWN_PATTERN = r"(?m)^(#{1,6}\s+|\s*[-*+]\s+|\s*\d+[.)]\s+|>\s+|\|.*\|\s*$)"
+    CODE_BLOCK_PATTERN = r"(?s)```(\w+)?\n(.*?)```"
+    STRUCTURED_MARKDOWN_PATTERN = (
+        r"(?m)^(#{1,6}\s+|\s*[-*+]\s+|\s*\d+[.)]\s+|>\s+|\|.*\|\s*$)"
+    )
     PROGRESS_MESSAGES = {
         "tool_routing": "正在判断是否需要读取本地信息...",
         "tool_planning": "正在规划本地读取步骤...",
@@ -90,7 +95,9 @@ class RichCLI:
         ),
     }
 
-    def __init__(self, agent: Agent, title: str = "AI 对话助手", input_label: str = "你"):
+    def __init__(
+        self, agent: Agent, title: str = "AI 对话助手", input_label: str = "你"
+    ):
         self.agent = agent
         self.title = title
         self.input_prompt = f"\001\033[1;32m\002{input_label}> \001\033[0m\002"
@@ -112,7 +119,9 @@ class RichCLI:
         if logger:
             logger.info("Rich CLI 增强版启动")
 
-        self.console.print(Panel.fit(f"🤖 {self.title}", style="bold cyan", border_style="cyan"))
+        self.console.print(
+            Panel.fit(f"🤖 {self.title}", style="bold cyan", border_style="cyan")
+        )
         with self.console.status("[bold cyan]正在启动模型客户端...[/bold cyan]"):
             try:
                 self.agent.start()
@@ -132,9 +141,18 @@ class RichCLI:
                 continue
             level = notice.get("level") or "info"
             if level == "warning":
-                self.console.print(Panel(message, title="⚠️  登录状态警告", style="red", border_style="red"))
+                self.console.print(
+                    Panel(
+                        message,
+                        title="⚠️  登录状态警告",
+                        style="red",
+                        border_style="red",
+                    )
+                )
             else:
-                self.console.print(Panel(message, title="💡 注意", style="cyan", border_style="cyan"))
+                self.console.print(
+                    Panel(message, title="💡 注意", style="cyan", border_style="cyan")
+                )
 
     def _run_input_loop(self) -> None:
         while True:
@@ -165,8 +183,15 @@ class RichCLI:
     def _run_agent_turn(self, user_input: str) -> None:
         progress = TurnProgress()
         try:
-            with Live(progress.render(), console=self.console, refresh_per_second=8, transient=True) as live:
-                assistant_reply = self.agent.run_turn(user_input, self._build_status_event_handler(live, progress))
+            with Live(
+                progress.render(),
+                console=self.console,
+                refresh_per_second=8,
+                transient=True,
+            ) as live:
+                assistant_reply = self.agent.run_turn(
+                    user_input, self._build_status_event_handler(live, progress)
+                )
         except Exception as e:
             self.console.print(f"[red]❌ 出错了: {e}[/red]")
             return
@@ -205,7 +230,9 @@ class RichCLI:
         message = self.PROGRESS_MESSAGES.get(event_type)
         if not message:
             return None
-        return TurnProgressEntry(event_type=event_type, message=message, dedupe_key=event_type)
+        return TurnProgressEntry(
+            event_type=event_type, message=message, dedupe_key=event_type
+        )
 
     def _display_finished_progress(self, progress: TurnProgress) -> None:
         if progress.entries:
@@ -224,7 +251,9 @@ class RichCLI:
         - 支持多个代码块，保持原文顺序
         """
         restored = restore_rendered_code_blocks(text)
-        if self._display_structured_response(text) or self._display_structured_response(restored):
+        if self._display_structured_response(text) or self._display_structured_response(
+            restored
+        ):
             return
 
         cleaned = remove_line_numbers_keep_markdown(restored)
@@ -246,7 +275,9 @@ class RichCLI:
             part_type = part.get("type")
             content = str(part.get("content") or "")
             if part_type == "code":
-                self._print_code_block(content, lang=str(part.get("language") or "text"))
+                self._print_code_block(
+                    content, lang=str(part.get("language") or "text")
+                )
             else:
                 self._print_plain_text(content)
         return True
@@ -266,9 +297,13 @@ class RichCLI:
     def _print_code_block(self, code: str, lang: str = "python") -> None:
         lexer = lang or "text"
         try:
-            syntax = Syntax(code.strip(), lexer=lexer, theme="monokai", line_numbers=False)
+            syntax = Syntax(
+                code.strip(), lexer=lexer, theme="monokai", line_numbers=False
+            )
         except ClassNotFound:
-            syntax = Syntax(code.strip(), lexer="text", theme="monokai", line_numbers=False)
+            syntax = Syntax(
+                code.strip(), lexer="text", theme="monokai", line_numbers=False
+            )
         self.console.print(syntax)
 
     def _setup_readline(self):
@@ -282,7 +317,7 @@ class RichCLI:
     def _save_readline_history(self) -> None:
         readline.write_history_file(self.HISTORY_FILE)
         with open(self.HISTORY_FILE, "r+", encoding="utf-8") as file:
-            lines = file.readlines()[-readline.get_history_length():]
+            lines = file.readlines()[-readline.get_history_length() :]
             file.seek(0)
             file.truncate()
             file.writelines(lines)

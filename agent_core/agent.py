@@ -1,6 +1,7 @@
-# agent_core/agent.py
 from pathlib import Path
 from typing import Any, Callable, Optional
+
+from utils.text_helpers import markdown_to_plain
 
 from .config import AgentConfig
 from .file_transport import PromptTransport
@@ -8,8 +9,6 @@ from .memory import Memory
 from .prompt_loader import render_prompt
 from .tool_commands import ReadonlyToolCommandRunner
 from .tool_orchestrator import ToolOrchestrator
-from utils.text_helpers import markdown_to_plain
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -34,16 +33,30 @@ class Agent:
         self.client = client
         self.memory = memory
         self.workspace = workspace
-        self.max_text_chars = config.max_text_chars if max_text_chars is None else max_text_chars
-        resolved_upload_dir = upload_dir if upload_dir is not None else config.upload_dir
-        self.upload_dir = Path(resolved_upload_dir) if resolved_upload_dir else PROJECT_ROOT / ".cheapclaw" / "uploads"
+        self.max_text_chars = (
+            config.max_text_chars if max_text_chars is None else max_text_chars
+        )
+        resolved_upload_dir = (
+            upload_dir if upload_dir is not None else config.upload_dir
+        )
+        self.upload_dir = (
+            Path(resolved_upload_dir)
+            if resolved_upload_dir
+            else PROJECT_ROOT / ".cheapclaw" / "uploads"
+        )
         self.file_transport_enabled = (
-            config.file_transport_enabled if file_transport_enabled is None else file_transport_enabled
+            config.file_transport_enabled
+            if file_transport_enabled is None
+            else file_transport_enabled
         )
         self.tool_orchestration_enabled = (
-            config.tool_orchestration_enabled if tool_orchestration_enabled is None else tool_orchestration_enabled
+            config.tool_orchestration_enabled
+            if tool_orchestration_enabled is None
+            else tool_orchestration_enabled
         )
-        resolved_max_tool_steps = config.max_tool_steps if max_tool_steps is None else max_tool_steps
+        resolved_max_tool_steps = (
+            config.max_tool_steps if max_tool_steps is None else max_tool_steps
+        )
         self.max_tool_steps = max(1, int(resolved_max_tool_steps))
         self.tool_config = config.tools
         self.tool_runner = self._build_tool_runner(tool_runner)
@@ -52,7 +65,9 @@ class Agent:
         self.logger = getattr(client, "logger", None)
         self._closed = False
 
-    def _build_tool_runner(self, tool_runner: ReadonlyToolCommandRunner | None) -> ReadonlyToolCommandRunner | None:
+    def _build_tool_runner(
+        self, tool_runner: ReadonlyToolCommandRunner | None
+    ) -> ReadonlyToolCommandRunner | None:
         if tool_runner is not None:
             return tool_runner
         if self.workspace is None:
@@ -84,10 +99,19 @@ class Agent:
         if callable(start):
             start()
 
-    def run_turn(self, user_input: str, event_callback: Optional[Callable[[dict], None]] = None) -> str:
+    def run_turn(
+        self, user_input: str, event_callback: Optional[Callable[[dict], None]] = None
+    ) -> str:
         """执行一轮对话，并将清洗后的回复写入记忆。"""
-        if self.tool_orchestrator is not None and self.tool_orchestrator.has_pending_confirmation():
-            assistant_reply = self.tool_orchestrator.handle_pending_command_confirmation(user_input, event_callback)
+        if (
+            self.tool_orchestrator is not None
+            and self.tool_orchestrator.has_pending_confirmation()
+        ):
+            assistant_reply = (
+                self.tool_orchestrator.handle_pending_command_confirmation(
+                    user_input, event_callback
+                )
+            )
             self._update_memory(user_input, assistant_reply, event_callback)
             return assistant_reply
 
@@ -155,7 +179,9 @@ class Agent:
             if callable(close):
                 close()
 
-    def _run_legacy_turn(self, user_input: str, event_callback: Optional[Callable[[dict], None]] = None) -> str:
+    def _run_legacy_turn(
+        self, user_input: str, event_callback: Optional[Callable[[dict], None]] = None
+    ) -> str:
         prompt = self._build_chat_prompt(user_input)
         assistant_reply = self.transport.send(prompt, event_callback)
         self._update_memory(user_input, assistant_reply, event_callback)
@@ -171,12 +197,20 @@ class Agent:
         )
 
     def _can_use_tool_orchestration(self) -> bool:
-        return self.tool_orchestration_enabled and self.workspace is not None and self.tool_orchestrator is not None
+        return (
+            self.tool_orchestration_enabled
+            and self.workspace is not None
+            and self.tool_orchestrator is not None
+        )
 
     def _is_router_sentinel_reply(self, assistant_reply: str) -> bool:
-        return assistant_reply.strip().lower() in self.tool_config.router_sentinel_replies
+        return (
+            assistant_reply.strip().lower() in self.tool_config.router_sentinel_replies
+        )
 
-    def _emit_event(self, event_callback: Optional[Callable[[dict], None]], event: dict) -> None:
+    def _emit_event(
+        self, event_callback: Optional[Callable[[dict], None]], event: dict
+    ) -> None:
         if event_callback:
             event_callback(event)
 

@@ -1,4 +1,3 @@
-# agent_core/tool_commands.py
 import difflib
 import hashlib
 import json
@@ -14,15 +13,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from utils.text_helpers import first_nonempty_line, strip_code_fence, truncate_text_fields
+from utils.text_helpers import (
+    first_nonempty_line,
+    strip_code_fence,
+    truncate_text_fields,
+)
 
 from .config import ToolConfig
 from .workspace import Workspace, WorkspaceError
 
-
 COMMAND_NAME_PATTERN = re.compile(r"[A-Za-z0-9._+-]+")
 DEFAULT_BUILTINS = frozenset({"file", "checkpoint"})
-DEFAULT_SHELL_OPERATORS = frozenset({"|", "||", "&", "&&", ";", ">", ">>", "<", "<<", "<<<"})
+DEFAULT_SHELL_OPERATORS = frozenset(
+    {"|", "||", "&", "&&", ";", ">", ">>", "<", "<<", "<<<"}
+)
 
 
 class ToolCommandError(ValueError):
@@ -46,8 +50,12 @@ class TerminalCommandPolicy:
         shell_operators: Iterable[str] = DEFAULT_SHELL_OPERATORS,
     ):
         defaults = ToolConfig()
-        self.blacklist = frozenset(defaults.command_blacklist if blacklist is None else blacklist)
-        self.whitelist = frozenset(defaults.command_whitelist if whitelist is None else whitelist)
+        self.blacklist = frozenset(
+            defaults.command_blacklist if blacklist is None else blacklist
+        )
+        self.whitelist = frozenset(
+            defaults.command_whitelist if whitelist is None else whitelist
+        )
         self.builtins = frozenset(builtins)
         self.shell_operators = frozenset(shell_operators)
 
@@ -66,12 +74,16 @@ class TerminalCommandPolicy:
             examples.extend(["cd agent_core", "cd .."])
         if "cat" in self.whitelist:
             examples.append("cat agent_core/agent.py")
-        examples.extend([
-            "file replace debug/test.py",
-            "checkpoint list",
-            "checkpoint restore ckpt-example",
-        ])
-        examples.append("final: 当前目录包含 run.py、agent_core、model_clients、ui 等。")
+        examples.extend(
+            [
+                "file replace debug/test.py",
+                "checkpoint list",
+                "checkpoint restore ckpt-example",
+            ]
+        )
+        examples.append(
+            "final: 当前目录包含 run.py、agent_core、model_clients、ui 等。"
+        )
         return examples
 
     def validate_action(self, data: dict) -> dict:
@@ -82,7 +94,11 @@ class TerminalCommandPolicy:
             answer = data.get("answer")
             if not isinstance(answer, str):
                 raise ToolCommandError("final.answer 必须是字符串")
-            return {"action": "final", "answer": answer, "explicit_final": data.get("explicit_final", True)}
+            return {
+                "action": "final",
+                "answer": answer,
+                "explicit_final": data.get("explicit_final", True),
+            }
         if action != "command":
             raise ToolCommandError("action 必须是 command 或 final")
         command = self.validate_command(data.get("command", ""))
@@ -104,13 +120,19 @@ class TerminalCommandPolicy:
             raise ToolCommandError(f"命令在黑名单内: {program}")
         self.reject_shell_structures(argv)
         normalized_argv = [program, *argv[1:]]
-        command = TerminalCommand(command=shlex.join(normalized_argv), argv=normalized_argv)
+        command = TerminalCommand(
+            command=shlex.join(normalized_argv), argv=normalized_argv
+        )
         if program in self.builtins:
             self.validate_builtin(command)
         return command
 
     def requires_confirmation(self, command: TerminalCommand | dict) -> bool:
-        argv = command.argv if isinstance(command, TerminalCommand) else command.get("argv", [])
+        argv = (
+            command.argv
+            if isinstance(command, TerminalCommand)
+            else command.get("argv", [])
+        )
         if not argv:
             return False
         if argv[0] == "file":
@@ -131,7 +153,9 @@ class TerminalCommandPolicy:
                 return
             if len(argv) == 3 and argv[1] == "restore":
                 return
-            raise ToolCommandError("checkpoint 仅支持: checkpoint list 或 checkpoint restore <id>")
+            raise ToolCommandError(
+                "checkpoint 仅支持: checkpoint list 或 checkpoint restore <id>"
+            )
         raise ToolCommandError(f"未知内置伪命令: {argv[0]}")
 
     def _reject_unsafe_path_argument(self, path: str) -> None:
@@ -157,8 +181,14 @@ class TerminalCommandPolicy:
     def reject_shell_structures(self, argv: Iterable[str]) -> None:
         for token in argv:
             if token in self.shell_operators or "$" in token or "`" in token:
-                raise ToolCommandError("不允许 shell 管道、重定向、后台执行、命令替换或变量展开")
-            if "=" in token and not token.startswith("-") and token.split("=", 1)[0].isidentifier():
+                raise ToolCommandError(
+                    "不允许 shell 管道、重定向、后台执行、命令替换或变量展开"
+                )
+            if (
+                "=" in token
+                and not token.startswith("-")
+                and token.split("=", 1)[0].isidentifier()
+            ):
                 raise ToolCommandError("不允许环境变量赋值")
 
 
@@ -181,7 +211,9 @@ class ControlledTerminalRunner:
             shell_operators=DEFAULT_SHELL_OPERATORS,
         )
         self.session_id = uuid.uuid4().hex[:8]
-        self.checkpoint_root = self.workspace.root / ".cheapclaw" / "checkpoints" / self.session_id
+        self.checkpoint_root = (
+            self.workspace.root / ".cheapclaw" / "checkpoints" / self.session_id
+        )
         self.pending_file_edits: dict[str, dict] = {}
 
     def command_policy_summary(self) -> str:
@@ -195,7 +227,11 @@ class ControlledTerminalRunner:
         if not text:
             raise ToolCommandError("工具规划器未返回内容")
         if text.lower().startswith("final:"):
-            return {"action": "final", "answer": text.split(":", 1)[1].strip(), "explicit_final": True}
+            return {
+                "action": "final",
+                "answer": text.split(":", 1)[1].strip(),
+                "explicit_final": True,
+            }
 
         command_text = first_nonempty_line(text)
         try:
@@ -216,7 +252,11 @@ class ControlledTerminalRunner:
         return self.policy.requires_confirmation(command)
 
     def execute(self, action: dict | TerminalCommand) -> dict:
-        command = action if isinstance(action, TerminalCommand) else TerminalCommand(action["command"], action["argv"])
+        command = (
+            action
+            if isinstance(action, TerminalCommand)
+            else TerminalCommand(action["command"], action["argv"])
+        )
         try:
             if command.argv[0] == "cd":
                 return self._execute_cd(command)
@@ -225,7 +265,13 @@ class ControlledTerminalRunner:
             if command.argv[0] == "checkpoint":
                 return self._execute_checkpoint_builtin(command)
             return self._execute_subprocess(command)
-        except (ToolCommandError, WorkspaceError, FileNotFoundError, OSError, subprocess.SubprocessError) as exc:
+        except (
+            ToolCommandError,
+            WorkspaceError,
+            FileNotFoundError,
+            OSError,
+            subprocess.SubprocessError,
+        ) as exc:
             return {
                 "command": command.command,
                 "ok": False,
@@ -234,7 +280,9 @@ class ControlledTerminalRunner:
             }
 
     def truncate_observation(self, observation: dict) -> dict:
-        return truncate_text_fields(observation, ("stdout", "stderr"), self.config.observation_text_limit)
+        return truncate_text_fields(
+            observation, ("stdout", "stderr"), self.config.observation_text_limit
+        )
 
     def _execute_cd(self, command: TerminalCommand) -> dict:
         if len(command.argv) > 2:
@@ -282,14 +330,20 @@ class ControlledTerminalRunner:
             raise WorkspaceError(f"不是普通文件: {terminal_command.argv[2]}")
         encoded = content.encode("utf-8")
         if len(encoded) > self.config.max_file_edit_bytes:
-            raise ToolCommandError(f"写入内容超过限制: {self.config.max_file_edit_bytes} bytes")
+            raise ToolCommandError(
+                f"写入内容超过限制: {self.config.max_file_edit_bytes} bytes"
+            )
         old_text = target.read_text(encoding="utf-8") if target.exists() else ""
         target_state = self._file_state(target)
         diff = "".join(
             difflib.unified_diff(
                 old_text.splitlines(keepends=True),
                 content.splitlines(keepends=True),
-                fromfile=str(target.relative_to(self.workspace.root)) if target.exists() else "/dev/null",
+                fromfile=(
+                    str(target.relative_to(self.workspace.root))
+                    if target.exists()
+                    else "/dev/null"
+                ),
                 tofile=str(target.relative_to(self.workspace.root)),
             )
         )
@@ -340,12 +394,16 @@ class ControlledTerminalRunner:
         if not target.exists():
             return {"exists": False}
         if not target.is_file():
-            raise WorkspaceError(f"不是普通文件: {target.relative_to(self.workspace.root)}")
+            raise WorkspaceError(
+                f"不是普通文件: {target.relative_to(self.workspace.root)}"
+            )
         digest = hashlib.sha256(target.read_bytes()).hexdigest()
         return {"exists": True, "digest": digest}
 
     def _atomic_write_text(self, target: Path, content: str) -> None:
-        fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".cheapclaw.tmp", dir=target.parent)
+        fd, temp_name = tempfile.mkstemp(
+            prefix=f".{target.name}.", suffix=".cheapclaw.tmp", dir=target.parent
+        )
         temp_path = Path(temp_name)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as temp_file:
@@ -378,9 +436,15 @@ class ControlledTerminalRunner:
 
     def _list_checkpoints(self, command: TerminalCommand) -> dict:
         checkpoints = []
-        for manifest_path in sorted(self.checkpoint_root.glob("*/manifest.json")) if self.checkpoint_root.exists() else []:
+        for manifest_path in (
+            sorted(self.checkpoint_root.glob("*/manifest.json"))
+            if self.checkpoint_root.exists()
+            else []
+        ):
             try:
-                checkpoints.append(json.loads(manifest_path.read_text(encoding="utf-8")))
+                checkpoints.append(
+                    json.loads(manifest_path.read_text(encoding="utf-8"))
+                )
             except (OSError, json.JSONDecodeError):
                 continue
         return {
@@ -427,7 +491,9 @@ class ControlledTerminalRunner:
             "created_at": time.time(),
             "existed": existed,
         }
-        (checkpoint_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        (checkpoint_dir / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         return checkpoint_id
 
     def _prune_checkpoints(self) -> None:
@@ -438,7 +504,7 @@ class ControlledTerminalRunner:
             key=lambda path: path.stat().st_mtime,
             reverse=True,
         )
-        for stale in checkpoint_dirs[self.config.checkpoint_keep_limit:]:
+        for stale in checkpoint_dirs[self.config.checkpoint_keep_limit :]:
             shutil.rmtree(stale, ignore_errors=True)
 
     def _resolve_from_cwd(self, path: str) -> Path:
