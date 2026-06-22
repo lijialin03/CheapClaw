@@ -27,3 +27,10 @@ include-package-data = true
 [tool.setuptools.package-data]
 agent_core = ["prompts/*.md"]
 model_clients = ["assets/qwen/scripts/*.js"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-q"

@@ -202,7 +202,11 @@ def restore_rendered_code_blocks(text: str) -> str:
     lines = text.splitlines()
     restored: list[str] = []
     index = 0
-    languages = {"python", "py", "javascript", "typescript", "json", "markdown", "html", "css", "bash", "shell", "sh"}
+    languages = {
+        "python", "py", "javascript", "typescript", "json", "markdown", "md",
+        "html", "css", "bash", "shell", "sh", "yaml", "yml", "toml", "ini",
+        "cfg", "conf", "text", "txt",
+    }
 
     while index < len(lines):
         language = lines[index].strip().lower()
@@ -241,6 +245,14 @@ def _looks_like_rendered_code(language: str, code_lines: list[str]) -> bool:
     code = "\n".join(code_lines)
     if language in {"python", "py"}:
         return _looks_like_python_code(code) or any(token in code for token in ("=", "with ", "open(", "b\"", "print("))
+    if language in {"yaml", "yml"}:
+        return any(":" in line or line.lstrip().startswith("- ") for line in code_lines)
+    if language in {"toml", "ini", "cfg", "conf"}:
+        return any("=" in line or line.strip().startswith("[") for line in code_lines)
+    if language in {"markdown", "md"}:
+        return any(line.lstrip().startswith(("#", "- ", "* ", ">", "```")) for line in code_lines)
+    if language in {"text", "txt"}:
+        return bool(code.strip())
     return bool(re.search(r"[{}();=<>]|^\s*(const|let|var|function|import|export|class|def|if|for|while)\b", code, re.MULTILINE))
 
 
@@ -255,14 +267,19 @@ def strip_code_fence(text: str, preserve_inner: bool = False) -> str:
 
 
 def clean_generated_file_content(text: str) -> str:
+    text = restore_rendered_code_blocks(text.replace("\u00a0", " "))
     code = get_code(text)
     if code is not None:
         text = code
-    text = remove_line_numbers_keep_markdown(text.replace("\u00a0", " "))
+    text = remove_line_numbers_keep_markdown(text)
     lines = text.splitlines()
     while lines and not lines[0].strip():
         lines.pop(0)
-    if lines and lines[0].strip().lower() in {"python", "py", "javascript", "typescript", "json", "markdown", "html", "css"}:
+    if lines and lines[0].strip().lower() in {
+        "python", "py", "javascript", "typescript", "json", "markdown", "md",
+        "html", "css", "yaml", "yml", "toml", "ini", "cfg", "conf", "text", "txt",
+        "bash", "shell", "sh",
+    }:
         lines.pop(0)
     cleaned = "\n".join(line for line in lines if not line.strip().isdigit())
     if _looks_like_python_code(cleaned):

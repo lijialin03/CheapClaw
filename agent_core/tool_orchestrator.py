@@ -62,9 +62,10 @@ class ToolOrchestrator:
         self.pending_command_confirmation = None
         if pending.file_edit_id:
             observation = self.tool_runner.commit_file_edit(pending.file_edit_id)
-        else:
-            action = {"action": "command", "command": pending.command, "argv": pending.argv}
-            observation = self._execute_action(action, event_callback)
+            return observation.get("stdout") or "文件修改已执行。"
+
+        action = {"action": "command", "command": pending.command, "argv": pending.argv}
+        observation = self._execute_action(action, event_callback)
         observations = [*pending.observations, observation]
         return self._continue_tool_orchestration(
             pending.user_input or f"用户已确认执行命令: {pending.command}",
