@@ -1,0 +1,285 @@
+import inspect
+
+import run
+from model_clients.deepseek import (
+    COMPOSER_SELECTOR,
+    SEND_BUTTON_SELECTOR,
+    UPLOAD_BUTTON_SELECTOR,
+    DeepSeekAdapter,
+    DeepSeekClient,
+)
+from tests.mocks import DummyConfig, DummyLogger, FakePage, FakeSession
+
+LOGIN_STATE_JS = DeepSeekAdapter.load_js("login_state.js")
+LATEST_REPLY_JS = DeepSeekAdapter.load_js("latest_reply.js")
+ASSISTANT_COUNT_JS = DeepSeekAdapter.load_js("assistant_count.js")
+UPLOADED_FILE_CARD_JS = DeepSeekAdapter.load_js("uploaded_file_card.js")
+
+
+def bind_adapter(page):
+    adapter = DeepSeekAdapter()
+    adapter.bind(FakeSession(page), DummyConfig(), DummyLogger())
+    return adapter
+
+
+def test_deepseek_default_url():
+    assert DeepSeekAdapter().default_url() == "https://chat.deepseek.com"
+
+
+def test_deepseek_client_instantiates_without_playwright():
+    client = DeepSeekClient(logger=DummyLogger())
+
+    assert isinstance(client.adapter, DeepSeekAdapter)
+    assert client.DISPLAY_NAME == "DeepSeek"
+    assert client.config.storage_state_path.name == "storage_state_ds.json"
+
+
+def test_deepseek_client_accepts_cleanup_session_flag():
+    client = DeepSeekClient(logger=DummyLogger(), cleanup_session=True)
+
+    assert client.cleanup_session_on_close is True
+
+
+def test_login_state_guidance_mentions_export_script_and_path():
+    guidance = DeepSeekAdapter().login_state_guidance("config/storage_state_ds.json")
+
+    assert "scripts/export_state.py --model deepseek" in guidance
+    assert "storage_state_ds.json" in guidance
+    assert "config/storage_state_ds.json" in guidance
+
+
+def test_composer_selector_uses_deepseek_search_textarea():
+    assert COMPOSER_SELECTOR == 'textarea[name="search"]'
+    assert 'textarea[name="search"]' in LOGIN_STATE_JS
+    assert "textarea:not" not in COMPOSER_SELECTOR
+    assert "textarea:not" not in LOGIN_STATE_JS
+    assert "placeholder" not in COMPOSER_SELECTOR.lower()
+
+
+def test_send_button_selector_uses_deepseek_role_button_classes():
+    assert "[role='button']" in SEND_BUTTON_SELECTOR
+    assert "ds-button--primary" in SEND_BUTTON_SELECTOR
+    assert "ds-button--circle" in SEND_BUTTON_SELECTOR
+    assert ":not(.ds-button--disabled)" in SEND_BUTTON_SELECTOR
+    assert "button[aria-label]" not in SEND_BUTTON_SELECTOR
+    assert "has-text('发送')" not in SEND_BUTTON_SELECTOR
+    assert "has-text('Send')" not in SEND_BUTTON_SELECTOR
+
+
+def test_upload_button_selector_uses_stable_ds_button_classes():
+    assert "[role='button']" in UPLOAD_BUTTON_SELECTOR
+    assert "ds-button--iconLabelPrimary" in UPLOAD_BUTTON_SELECTOR
+    assert "ds-button--icon" in UPLOAD_BUTTON_SELECTOR
+    assert "ds-button--capsule" in UPLOAD_BUTTON_SELECTOR
+    assert "ds-button--s" in UPLOAD_BUTTON_SELECTOR
+    assert "f02f0e25" not in UPLOAD_BUTTON_SELECTOR
+
+
+def test_sign_in_url_is_not_logged_in_without_dom_evaluation():
+    page = FakePage(url="https://chat.deepseek.com/sign_in", exc=True)
+    adapter = bind_adapter(page)
+
+    assert adapter.is_logged_in() is False
+    assert page.scripts == []
+
+
+def test_login_state_with_composer_and_no_auth_buttons_is_logged_in():
+    page = FakePage(values=[{"hasComposer": True, "authButtons": []}])
+    adapter = bind_adapter(page)
+
+    assert adapter.is_logged_in() is True
+
+
+def test_login_state_with_composer_ignores_auth_button_text():
+    page = FakePage(values=[{"hasComposer": True, "authButtons": ["Sign in"]}])
+    adapter = bind_adapter(page)
+
+    assert adapter.is_logged_in() is True
+
+
+def test_login_state_without_composer_is_not_logged_in():
+    page = FakePage(values=[{"hasComposer": False, "authButtons": []}])
+    adapter = bind_adapter(page)
+
+    assert adapter.is_logged_in() is False
+
+
+def test_login_state_js_does_not_match_localized_login_button_text():
+    assert "Sign in|Sign up|Log in|Login" not in LOGIN_STATE_JS
+    assert "登录|注册|登入|立即登录" not in LOGIN_STATE_JS
+
+
+def test_login_state_js_is_valid_javascript(page):
+    page.set_content('<textarea name="search"></textarea>')
+
+    state = page.evaluate(LOGIN_STATE_JS)
+
+    assert state["hasComposer"] is True
+
+
+def test_wait_until_ready_waits_for_composer_selector():
+    page = FakePage()
+    adapter = bind_adapter(page)
+
+    adapter.wait_until_ready()
+
+    assert page.waited_selectors == [(COMPOSER_SELECTOR, {"timeout": 1000})]
+    assert page.waited_timeouts == [1000]
+
+
+def test_current_conversation_id_extracts_deepseek_chat_id():
+    adapter = bind_adapter(
+        FakePage(url="https://chat.deepseek.com/a/chat/s/abc123?foo=bar")
+    )
+
+    assert adapter.current_conversation_id() == "abc123"
+
+
+def test_current_conversation_id_returns_none_without_chat_id():
+    adapter = bind_adapter(FakePage(url="https://chat.deepseek.com/"))
+
+    assert adapter.current_conversation_id() is None
+
+
+def test_after_message_sent_records_new_conversation_id():
+    logger = DummyLogger()
+    adapter = DeepSeekAdapter()
+    adapter.bind(
+        FakeSession(FakePage(url="https://chat.deepseek.com/a/chat/s/new-id")),
+        DummyConfig(),
+        logger,
+    )
+
+    adapter.after_message_sent()
+
+    assert adapter.conversation_id == "new-id"
+    assert logger.debug_messages[-1] == "DeepSeek 当前会话 ID: new-id"
+
+
+def test_after_message_sent_ignores_missing_or_unchanged_conversation_id():
+    logger = DummyLogger()
+    adapter = DeepSeekAdapter()
+    adapter.bind(
+        FakeSession(FakePage(url="https://chat.deepseek.com/")), DummyConfig(), logger
+    )
+
+    adapter.after_message_sent()
+
+    assert adapter.conversation_id is None
+    assert logger.debug_messages == []
+
+    adapter.session.page.url = "https://chat.deepseek.com/a/chat/s/same-id"
+    adapter.after_message_sent()
+    adapter.after_message_sent()
+
+    assert adapter.conversation_id == "same-id"
+    assert logger.debug_messages == ["DeepSeek 当前会话 ID: same-id"]
+
+
+def test_cleanup_session_skips_without_recorded_conversation_id():
+    logger = DummyLogger()
+    adapter = DeepSeekAdapter()
+    adapter.bind(FakeSession(FakePage()), DummyConfig(), logger)
+
+    adapter.cleanup_session()
+
+    assert logger.debug_messages == ["DeepSeek 无已记录会话 ID，跳过会话清理"]
+    assert logger.warning_messages == []
+
+
+def test_cleanup_session_warns_when_ui_delete_fails():
+    logger = DummyLogger()
+    adapter = DeepSeekAdapter()
+    adapter.conversation_id = "missing-id"
+    adapter.bind(FakeSession(FakePage()), DummyConfig(), logger)
+
+    adapter.cleanup_session()
+
+    assert logger.warning_messages
+    assert "DeepSeek 会话清理失败" in logger.warning_messages[-1]
+
+
+def test_delete_conversation_selectors_do_not_depend_on_localized_text():
+    source = inspect.getsource(DeepSeekAdapter.delete_recorded_conversation)
+    confirm_source = inspect.getsource(
+        DeepSeekAdapter._confirm_delete_conversation_if_needed
+    )
+
+    assert "has_text" not in source
+    assert "has-text" not in confirm_source
+    assert ".ds-dropdown-menu-option--error" in source
+    assert ".ds-button--error" in confirm_source
+
+
+def test_latest_reply_text_strips_and_fails_closed():
+    assert bind_adapter(FakePage(values=["  answer  "])).latest_reply_text() == "answer"
+    assert bind_adapter(FakePage(exc=True)).latest_reply_text() == ""
+
+
+def test_latest_reply_js_uses_deepseek_assistant_content_and_removes_citations(page):
+    page.set_content(
+        """
+        <div class="ds-markdown ds-assistant-message-main-content">
+            <p>old reply</p>
+        </div>
+        <div class="ds-markdown ds-assistant-message-main-content">
+            <p>Hello<span class="ds-markdown-cite">8</span> world</p>
+        </div>
+        <span class="ds-markdown-cite">9</span>
+        """
+    )
+
+    assert page.evaluate(LATEST_REPLY_JS) == "Hello world"
+    assert page.evaluate(ASSISTANT_COUNT_JS) == 2
+
+
+def test_assistant_count_js_uses_virtual_list_key_when_available(page):
+    page.set_content(
+        """
+        <div data-virtual-list-item-key="3">
+            <div class="ds-message">
+                <div class="ds-markdown ds-assistant-message-main-content">old</div>
+            </div>
+        </div>
+        <div data-virtual-list-item-key="8">
+            <div class="ds-message">
+                <div class="ds-markdown ds-assistant-message-main-content">new</div>
+            </div>
+        </div>
+        """
+    )
+
+    assert page.evaluate(ASSISTANT_COUNT_JS) == 8
+
+
+def test_uploaded_file_card_js_prefers_stable_deepseek_card_container(page):
+    page.set_content(
+        """
+        <div>dismiss.txt in unrelated page text</div>
+        <div class="ds-animated-size-item">
+            <div tabindex="0">
+                <div>
+                    <div>cheapclaw_upload_test.txt</div>
+                    <div>TXT 32B</div>
+                </div>
+            </div>
+        </div>
+        """
+    )
+
+    assert page.evaluate(UPLOADED_FILE_CARD_JS, "cheapclaw_upload_test.txt") is True
+    assert page.evaluate(UPLOADED_FILE_CARD_JS, "missing.txt") is False
+
+
+def test_generation_and_completion_fail_closed_sensibly():
+    assert bind_adapter(FakePage(values=[True])).is_generation_in_progress() is True
+    assert bind_adapter(FakePage(exc=True)).is_generation_in_progress() is False
+    assert bind_adapter(FakePage(values=[False])).is_reply_complete() is True
+    assert (
+        bind_adapter(FakePage(values=[RuntimeError("boom")])).is_reply_complete()
+        is True
+    )
+
+
+def test_deepseek_registered_in_run_model_clients():
+    assert run.MODEL_CLIENTS["deepseek"] is DeepSeekClient

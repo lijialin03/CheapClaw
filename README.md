@@ -80,9 +80,10 @@ python run.py
 ```bash
 cheapclaw --headed                 # 有头浏览器，便于观察登录或前端交互
 cheapclaw --workspace-root /path/to/project
-cheapclaw --model <model>
+cheapclaw --model <model>              # 选择模型 (deepseek / qwen，默认 deepseek)
 cheapclaw --storage-state /path/to/storage_state_xxx.json
 cheapclaw --config /path/to/default_config.json
+cheapclaw --cleanup-session          # 退出时清理本次创建的网页会话（当前仅 DeepSeek 支持）
 ```
 
 如果登录态缺失或失效，CheapClaw 会在 UI 中给出醒目提示，并以未登录模式 fallback；但该模式很可能无法正常完成模型交互。
@@ -134,10 +135,15 @@ cheapclaw --config /path/to/default_config.json
 ### 0.1.0
 
 - 增加 `cheapclaw` CLI 和模型登录态导出 CLI。
-- 支持多网页模型客户端接入。
+- 支持 Qwen 网页模型客户端接入。
 - 使用 `storage_state_<model>.json` 复用登录态，登录态异常时保留未登录 fallback。
 - 加入配置文件、受控工具策略和会话记忆归档。
 - 终端显示略显潦草。
 - 早期版本偶有抽风，重启 session 或重新提问通常是很实用的民间疗法。
+
+### 0.2.0
+
+- 新增 DeepSeek 网页模型客户端支持（`--model deepseek`）。
+- 扩展单元测试覆盖，减少薅羊毛过程中翻车的概率。
 
 </details>

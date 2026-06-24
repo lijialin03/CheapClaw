@@ -37,6 +37,8 @@ def test_parent_traversal_outside_workspace_is_rejected(tmp_path):
         "credentials.json",
         "credentials.prod.json",
         "config/storage_state.json",
+        "config/storage_state_qwen.json",
+        "config/storage_state_ds.json",
     ],
 )
 def test_sensitive_paths_are_rejected(tmp_path, path):

@@ -20,8 +20,8 @@ def main():
     parser.add_argument(
         "--model",
         choices=MODEL_CLIENTS.keys(),
-        default="qwen",
-        help="选择模型前端客户端 (默认: qwen；支持 qwen, deepseek)",
+        default="deepseek",
+        help="选择模型前端客户端 (默认: deepseek；支持 qwen, deepseek)",
     )
     parser.add_argument(
         "--config",
