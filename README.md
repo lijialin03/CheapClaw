@@ -16,7 +16,7 @@
 
 - Python `>=3.10`
 - Chromium / Playwright 浏览器运行环境
-- 一个可用的 Qwen 网页账号登录态
+- 一个可用的网页模型账号登录态
 
 推荐使用虚拟环境：
 
@@ -43,23 +43,23 @@ playwright install chromium
 
 ## 准备登录态
 
-CheapClaw 默认读取 `config/storage_state.json`。该文件包含网页登录凭据，请勿提交或分享。
+CheapClaw 会按当前模型客户端读取对应登录态，默认命名规则为 `config/storage_state_<model>.json`。这些文件包含网页登录凭据，请勿提交或分享。
 
-有图形界面的机器上：
-
-```bash
-cheapclaw-export-qwen-state
-```
-
-未安装为 CLI 时也可以运行：
+有图形界面的机器上，运行统一登录态导出脚本。安装为 CLI 后使用：
 
 ```bash
-python scripts/export_qwen_state.py
+cheapclaw-export-state --model <model>
 ```
 
-脚本会打开浏览器。你可以用密码、GitHub、二维码等任意 Qwen 网页登录方式完成登录；成功后会导出 `config/storage_state.json`。
+未安装为 CLI 时，可直接运行源码脚本：
 
-如果开发机没有图形界面，请在本地电脑导出 `storage_state.json`，再上传到开发机项目的 `config/` 目录。
+```bash
+python scripts/export_state.py --model <model>
+```
+
+脚本会打开浏览器。你可以用目标网页支持的网页登录方式完成登录；成功后会导出对应模型的 `config/storage_state_<model>.json`，并使用 `config/login_profile_<model>` 作为临时浏览器 profile（模型实现可使用兼容命名）。
+
+如果开发机没有图形界面，请在本地电脑导出对应模型的 `storage_state_<model>.json`，再上传到开发机项目的 `config/` 目录。
 
 ## 快速开始
 
@@ -80,7 +80,8 @@ python run.py
 ```bash
 cheapclaw --headed                 # 有头浏览器，便于观察登录或前端交互
 cheapclaw --workspace-root /path/to/project
-cheapclaw --storage-state /path/to/storage_state.json
+cheapclaw --model <model>
+cheapclaw --storage-state /path/to/storage_state_xxx.json
 cheapclaw --config /path/to/default_config.json
 ```
 
@@ -103,7 +104,7 @@ cheapclaw --config /path/to/default_config.json
 默认会读取当前目录的 `config/default_config.json`；如果不存在，会回退到项目内置默认配置。主要配置项包括：
 
 - `browser.headless`：是否无头运行，默认 `true`。
-- `browser.storage_state_path`：自定义登录态路径；为空时使用 Qwen 客户端默认的 `config/storage_state.json`。
+- `browser.storage_state_path`：自定义登录态路径；为空时使用当前模型客户端默认登录态路径。
 - `agent.max_text_chars`：超过该长度时启用文件发送。
 - `agent.tools.*`：受控命令白名单、确认回复、输出截断等工具策略。
 - `memory.*`：会话上下文预算和压缩阈值。
@@ -112,7 +113,7 @@ cheapclaw --config /path/to/default_config.json
 
 运行后会产生一些本地状态文件：
 
-- `config/storage_state.json`：网页登录态，敏感文件。
+- `config/storage_state_*.json`：各模型网页登录态，敏感文件。
 - `.cheapclaw/`：CLI 历史、上传缓存、会话记忆归档。
 - `debug/`：日志和调试截图。
 
@@ -120,21 +121,21 @@ cheapclaw --config /path/to/default_config.json
 
 ## 注意事项
 
-- 当前版本只内置 Qwen 客户端；项目结构按多模型扩展设计，但其他模型尚未接入。
+- 不同模型使用各自的登录态文件；新增模型时应遵循 `storage_state_<model>.json` 的命名规则。
 - 当前版本仍不稳定，网页状态、选择器变化、登录态过期都可能导致异常；遇到错误时可以先重启 session，或换一种问法重新提问。
 - CheapClaw 依赖网页 DOM 和交互流程；网页改版可能需要更新选择器。
 - 未登录 fallback 只保证程序不立刻退出，不保证模型交互可用。
 - 记忆压缩会通过当前网页模型生成摘要，因此可能产生一次可见的网页交互。
-- `storage_state.json` 等同于网页登录凭据，请像对待 cookie 一样保护它。
+- `storage_state_*.json` 等同于网页登录凭据，请像对待 cookie 一样保护它们。
 
 <details>
 <summary>版本更新记录</summary>
 
 ### 0.1.0
 
-- 增加 `cheapclaw` / `cheapclaw-export-qwen-state` CLI。
-- 当前仅支持 Qwen，后续计划接入更多网页模型客户端。
-- 使用 `storage_state.json` 复用登录态，登录态异常时保留未登录 fallback。
+- 增加 `cheapclaw` CLI 和模型登录态导出 CLI。
+- 支持多网页模型客户端接入。
+- 使用 `storage_state_<model>.json` 复用登录态，登录态异常时保留未登录 fallback。
 - 加入配置文件、受控工具策略和会话记忆归档。
 - 终端显示略显潦草。
 - 早期版本偶有抽风，重启 session 或重新提问通常是很实用的民间疗法。

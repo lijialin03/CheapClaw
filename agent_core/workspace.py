@@ -46,8 +46,12 @@ class Workspace:
             raise WorkspaceError(f"拒绝访问敏感文件: {path.name}")
         if path.name.startswith("credentials") and path.suffix.lower() == ".json":
             raise WorkspaceError(f"拒绝访问敏感文件: {path.name}")
-        if relative_parts == ("config", "storage_state.json"):
-            raise WorkspaceError("拒绝访问敏感文件: config/storage_state.json")
+        if len(relative_parts) == 2 and relative_parts[0] == "config":
+            name = relative_parts[1]
+            if name == "storage_state.json" or (
+                name.startswith("storage_state_") and name.endswith(".json")
+            ):
+                raise WorkspaceError(f"拒绝访问敏感文件: config/{name}")
 
     def _is_inside_root(self, path: Path) -> bool:
         return path == self.root or self.root in path.parents

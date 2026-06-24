@@ -4,13 +4,14 @@ from pathlib import Path
 from agent_core import Agent, Memory
 from agent_core.config import load_config
 from agent_core.workspace import Workspace
-from model_clients import QwenClient
+from model_clients import DeepSeekClient, QwenClient
 from ui import RichCLI
 
 DEFAULT_WORKSPACE_ROOT = Path.cwd()
 
 MODEL_CLIENTS = {
     "qwen": QwenClient,
+    "deepseek": DeepSeekClient,
 }
 
 
@@ -20,7 +21,7 @@ def main():
         "--model",
         choices=MODEL_CLIENTS.keys(),
         default="qwen",
-        help="选择模型前端客户端 (默认: qwen；当前版本仅支持 qwen)",
+        help="选择模型前端客户端 (默认: qwen；支持 qwen, deepseek)",
     )
     parser.add_argument(
         "--config",
@@ -30,7 +31,7 @@ def main():
     parser.add_argument(
         "--storage-state",
         default=None,
-        help="Playwright storage_state.json 路径 (默认: config/storage_state.json)",
+        help="Playwright 登录态 JSON 路径 (默认: 对应模型客户端的登录态路径)",
     )
     parser.add_argument(
         "--headed",
@@ -42,6 +43,11 @@ def main():
         "--workspace-root",
         default=str(DEFAULT_WORKSPACE_ROOT),
         help="Workspace 根目录 (默认: 当前目录)",
+    )
+    parser.add_argument(
+        "--cleanup-session",
+        action="store_true",
+        help="退出时清理本次运行创建的网页会话（当前仅 DeepSeek 支持）",
     )
     args = parser.parse_args()
 
@@ -59,6 +65,7 @@ def main():
         config=browser_config,
         headless=headless,
         storage_state_path=args.storage_state,
+        cleanup_session=args.cleanup_session,
     )
     model_name = getattr(client, "DISPLAY_NAME", args.model)
 

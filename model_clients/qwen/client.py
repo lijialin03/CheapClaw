@@ -2,91 +2,79 @@ from pathlib import Path
 
 from agent_core.config import BrowserConfig
 
-from .assets import load_asset_text
-from .browser_base import BrowserFrontendAdapter, BrowserModelClient
+from ..browser_base import BrowserFrontendAdapter, BrowserModelClient
 
-STORAGE_STATE_PATH = Path.cwd() / "config" / "storage_state.json"
+STORAGE_STATE_PATH = Path.cwd() / "config" / "storage_state_qwen.json"
 
 BROWSER_ARGS = [
     "--disable-blink-features=AutomationControlled",
 ]
 
+COMPOSER_SELECTOR = ".message-input-textarea"
+SEND_BUTTON_SELECTOR = (
+    "button.send-button:not([disabled]), .send-button:not([disabled])"
+)
+
 
 class QwenAdapter(BrowserFrontendAdapter):
     """Qwen-specific DOM selectors and browser interactions."""
 
+    # ── 类属性 ──
+
+    COMPOSER_SELECTOR = COMPOSER_SELECTOR
+    SEND_BUTTON_SELECTOR = SEND_BUTTON_SELECTOR
+    SEND_FAILURE_MESSAGE = "发送失败：未检测到新用户消息或发送完成状态"
+
+    LATEST_REPLY_SCRIPT = "latest_reply.js"
+    ASSISTANT_COUNT_SCRIPT = "assistant_count.js"
+    GENERATION_IN_PROGRESS_SCRIPT = "generation_in_progress.js"
+    REPLY_COMPLETE_SCRIPT = "reply_complete.js"
+    USER_COUNT_SCRIPT = "user_count.js"
+    USER_COUNT_ADVANCED_SCRIPT = "user_count_advanced.js"
+    COMPOSER_EMPTY_SCRIPT = "composer_empty.js"
+    LOGIN_STATE_SCRIPT = "login_state.js"
+    OVERLAY_AUTO_DISMISS_SCRIPT = "overlay_auto_dismiss.js"
+    REPLY_PREFERENCE_SCRIPT = "reply_preference.js"
+
+    # ── 抽象生命周期 ──
+
     def default_url(self) -> str:
         return "https://chat.qwen.ai/"
 
-    def login_state_guidance(self, storage_state_path: str) -> str:
-        return (
-            "有图形界面时，在项目根目录运行 `python scripts/export_qwen_state.py`，"
-            "按浏览器提示完成 Qwen 登录，脚本会导出 storage_state.json。"
-            "如果当前机器没有图形界面，请在本地电脑运行同一脚本，"
-            f"再把生成的 storage_state.json 上传到开发机的 {storage_state_path}。"
-            "导出脚本支持密码、GitHub、二维码等网页登录方式。"
-        )
+    def is_logged_in(self) -> bool:
+        """检查当前页面是否已登录。"""
+        try:
+            current_url = self.page.url.lower()
+            if any(keyword in current_url for keyword in ["passport", "login", "auth"]):
+                self.logger.warning(f"检测到重定向至登录页: {current_url}")
+                return False
+
+            state = self.page.evaluate(self.load_js(self.LOGIN_STATE_SCRIPT))
+            self.logger.debug(f"登录状态检查: {state}")
+            return state.get("authStatus") == 200 and not state.get("authButtons")
+        except Exception as e:
+            self.logger.warning(f"登录状态检查失败: {type(e).__name__}: {e}")
+            return False
 
     def wait_until_ready(self) -> None:
-        self.page.wait_for_selector(
-            ".message-input-textarea", timeout=self.config.timeout
-        )
+        self.page.wait_for_selector(COMPOSER_SELECTOR, timeout=self.config.timeout)
         self.page.wait_for_timeout(1000)
+
+    # ── 可选生命周期钩子 ──
+
+    def login_state_guidance(self, storage_state_path: str) -> str:
+        return (
+            "有图形界面时，在项目根目录运行 `python scripts/export_state.py --model qwen`，"
+            "按浏览器提示完成 Qwen 登录，脚本会导出 storage_state_qwen.json。"
+            "如果当前机器没有图形界面，请在本地电脑运行同一脚本，"
+            f"再把生成的 storage_state_qwen.json 上传到开发机的 {storage_state_path}。"
+            "导出脚本支持密码、GitHub、二维码等网页登录方式。"
+        )
 
     def after_page_loaded(self) -> None:
         self._inject_overlay_auto_dismiss()
 
-    def latest_reply_text(self) -> str:
-        try:
-            reply_locator = self.page.locator(
-                ".qwen-chat-message-assistant .response-message-content"
-            )
-            if reply_locator.count() == 0:
-                return ""
-            return reply_locator.last.inner_text(timeout=1000).strip()
-        except Exception:
-            return ""
-
-    def is_reply_complete(self) -> bool:
-        try:
-            return bool(
-                self.page.evaluate(load_asset_text("qwen/scripts/reply_complete.js"))
-            )
-        except Exception:
-            return False
-
-    def is_generation_in_progress(self) -> bool:
-        try:
-            return bool(
-                self.page.evaluate(
-                    load_asset_text("qwen/scripts/generation_in_progress.js")
-                )
-            )
-        except Exception:
-            return False
-
-    def assistant_message_count(self) -> int | None:
-        return self.page.locator(".response-message-content").count()
-
-    def try_handle_reply_preference_ui(self) -> str:
-        """处理 Qwen 偶发的“您更喜欢哪个回复”双回复评测 UI，默认选择第一个回复。"""
-        try:
-            if self.page.locator("text=您更喜欢哪个回复").count() == 0:
-                return ""
-
-            self.logger.warning("检测到双回复评测 UI，默认选择第一个回复")
-            self.logger.screenshot("reply_preference_ui", full_page=True)
-            result = self.page.evaluate(
-                load_asset_text("qwen/scripts/reply_preference.js")
-            )
-            reply = (result or {}).get("reply", "").strip()
-            if not (result or {}).get("clicked"):
-                self.logger.warning("未能点击第一个偏好回复按钮")
-            self.page.wait_for_timeout(1000)
-            return reply
-        except Exception as e:
-            self.logger.debug(f"处理双回复评测 UI 失败: {type(e).__name__}: {e}")
-            return ""
+    # ── 文本发送 ──
 
     def before_text_send(
         self,
@@ -94,12 +82,12 @@ class QwenAdapter(BrowserFrontendAdapter):
         auto_remove_limit: bool = True,
         auto_close_guidance: bool = True,
     ):
-        textarea = self.page.locator(".message-input-textarea")
+        textarea = self.page.locator(COMPOSER_SELECTOR)
         textarea.wait_for(state="visible", timeout=self.config.timeout)
 
         if auto_close_guidance:
             self._try_close_guidance()
-            textarea = self.page.locator(".message-input-textarea")
+            textarea = self.page.locator(COMPOSER_SELECTOR)
             textarea.wait_for(state="visible", timeout=self.config.timeout)
 
         if auto_remove_limit:
@@ -118,6 +106,8 @@ class QwenAdapter(BrowserFrontendAdapter):
             "previous_assistant_message_count": self.assistant_message_count(),
         }
 
+    # ── 文件上传 ──
+
     def before_file_send(self, file_path: Path, prompt: str = None):
         self.logger.debug(f"准备上传文件: {file_path}")
         self._try_close_guidance()
@@ -127,12 +117,6 @@ class QwenAdapter(BrowserFrontendAdapter):
             "prefer_button": True,
             "had_text": bool(prompt),
         }
-
-    def fill_prompt_after_upload(self, prompt: str):
-        textarea = self.page.locator(".message-input-textarea")
-        textarea.wait_for(state="visible", timeout=self.config.timeout)
-        textarea.fill(prompt)
-        return {"had_text": True}
 
     def upload_file(self, file_path: Path) -> None:
         """按 Qwen 前端真实交互打开上传菜单并选择文件，失败时回退隐藏 input。"""
@@ -155,8 +139,30 @@ class QwenAdapter(BrowserFrontendAdapter):
         self.logger.info("文件已显示在输入框附件卡片中")
         self.logger.screenshot("send_file_after_upload_card", full_page=False)
 
+    # ── 回复检测 ──
+
+    def try_handle_reply_preference_ui(self) -> str:
+        """处理 Qwen 偶发的"您更喜欢哪个回复"双回复评测 UI，默认选择第一个回复。"""
+        try:
+            if self.page.locator("text=您更喜欢哪个回复").count() == 0:
+                return ""
+
+            self.logger.warning("检测到双回复评测 UI，默认选择第一个回复")
+            self.logger.screenshot("reply_preference_ui", full_page=True)
+            result = self.page.evaluate(self.load_js(self.REPLY_PREFERENCE_SCRIPT))
+            reply = (result or {}).get("reply", "").strip()
+            if not (result or {}).get("clicked"):
+                self.logger.warning("未能点击第一个偏好回复按钮")
+            self.page.wait_for_timeout(1000)
+            return reply
+        except Exception as e:
+            self.logger.debug(f"处理双回复评测 UI 失败: {type(e).__name__}: {e}")
+            return ""
+
+    # ── 内部工具 (Qwen 特有) ──
+
     def _open_upload_menu(self) -> None:
-        """点击输入框左侧加号，打开包含“上传附件”的菜单。"""
+        """点击输入框左侧加号，打开包含"上传附件"的菜单。"""
         plus_button = self.page.locator(
             ".mode-select .ant-dropdown-trigger, .mode-select-open, #notification_update_popover_mode_select"
         ).first
@@ -195,82 +201,6 @@ class QwenAdapter(BrowserFrontendAdapter):
             timeout=self.config.timeout,
         )
 
-    def wait_until_sendable(self, timeout: int = None) -> None:
-        """等待发送按钮可用，表示当前输入或附件可以提交。"""
-        wait_timeout = timeout or self.config.timeout
-        self.page.wait_for_selector(
-            "button.send-button:not([disabled]), .send-button:not([disabled])",
-            state="visible",
-            timeout=wait_timeout,
-        )
-
-    def _user_message_count(self) -> int:
-        """返回当前页面中的用户消息数量。"""
-        return self.page.locator(".qwen-chat-message-user").count()
-
-    def send_current_message(
-        self,
-        previous_user_message_count: int = None,
-        prefer_button: bool = False,
-        had_text: bool = True,
-    ):
-        textarea = self.page.locator(".message-input-textarea")
-        send_button = self.page.locator(
-            "button.send-button:not([disabled]), .send-button:not([disabled])"
-        ).first
-
-        if prefer_button:
-            send_attempts = ("button", "enter")
-        else:
-            send_attempts = ("enter", "button")
-
-        for method in send_attempts:
-            try:
-                if method == "enter":
-                    textarea.press("Enter")
-                else:
-                    self.wait_until_sendable(timeout=5000)
-                    send_button.click(timeout=5000)
-                if self._is_sent(
-                    previous_user_message_count=previous_user_message_count,
-                    had_text=had_text,
-                ):
-                    return
-            except Exception as e:
-                self.logger.debug(f"{method} 发送异常: {type(e).__name__}: {e}")
-
-        raise RuntimeError("发送失败：未检测到新用户消息或发送完成状态")
-
-    def _is_sent(
-        self, previous_user_message_count: int = None, had_text: bool = True
-    ) -> bool:
-        """优先通过用户消息数量增加判断发送成功，文本消息可回退到输入框清空。"""
-        if previous_user_message_count is not None:
-            try:
-                self.page.wait_for_function(
-                    """(previousCount) => document.querySelectorAll('.qwen-chat-message-user').length > previousCount""",
-                    arg=previous_user_message_count,
-                    timeout=8000,
-                )
-                return True
-            except Exception:
-                pass
-
-        if not had_text:
-            return False
-
-        try:
-            self.page.wait_for_function(
-                """() => {
-                    const textarea = document.querySelector('.message-input-textarea');
-                    return textarea && textarea.value === '';
-                }""",
-                timeout=5000,
-            )
-            return True
-        except Exception:
-            return False
-
     def _try_close_guidance(self) -> bool:
         """如果当前有首页引导/示例区域，尝试关闭它。"""
         try:
@@ -285,24 +215,9 @@ class QwenAdapter(BrowserFrontendAdapter):
         except Exception:
             return False
 
-    def is_logged_in(self) -> bool:
-        """检查当前页面是否已登录。"""
-        try:
-            current_url = self.page.url.lower()
-            if any(keyword in current_url for keyword in ["passport", "login", "auth"]):
-                self.logger.warning(f"检测到重定向至登录页: {current_url}")
-                return False
-
-            state = self.page.evaluate(load_asset_text("qwen/scripts/login_state.js"))
-            self.logger.debug(f"登录状态检查: {state}")
-            return state.get("authStatus") == 200 and not state.get("authButtons")
-        except Exception as e:
-            self.logger.warning(f"登录状态检查失败: {type(e).__name__}: {e}")
-            return False
-
     def _inject_overlay_auto_dismiss(self):
         """自动关闭可能遮挡输入区的弹窗。"""
-        self.page.evaluate(load_asset_text("qwen/scripts/overlay_auto_dismiss.js"))
+        self.page.evaluate(self.load_js(self.OVERLAY_AUTO_DISMISS_SCRIPT))
         self.logger.debug("弹窗自动关闭 hook 已注入")
 
 
@@ -324,6 +239,7 @@ class QwenClient(BrowserModelClient):
         timeout: int | None = None,
         logger=None,
         storage_state_path: str | Path | None = None,
+        cleanup_session: bool = False,
     ):
         """
         初始化客户端。
@@ -338,6 +254,7 @@ class QwenClient(BrowserModelClient):
             timeout=timeout,
             logger=logger,
             storage_state_path=storage_state_path,
+            cleanup_session=cleanup_session,
         )
 
     def send_text(

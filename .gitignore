@@ -213,7 +213,8 @@ tempCodeRunnerFile.py
 .cheapclaw/
 debug/
 config/storage_state*.json
-config/qwen_login_profile/
+config/login_profile*/
+config/*_login_profile/
 config/qwen_logged_in*/
 
 # Marimo
