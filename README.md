@@ -131,7 +131,14 @@ cheapclaw --cleanup-session          # 退出时清理本次创建的网页会�
 
 ## 开发
 
-如果你想为 CheapClaw 新增网页模型客户端，请参阅[新增网页模型 Client 指南](docs/guides/add-client.md)。
+开发文档位于 `docs/guides/`：
+
+| 文档 | 说明 |
+| --- | --- |
+| [架构概览](docs/guides/architecture.md) | 项目结构、数据流、模块职责与通信关系 |
+| [记忆系统](docs/guides/memory.md) | 三层分层记忆、BM25 检索、自动压缩与 session 管理 |
+| [终端工具系统](docs/guides/tools.md) | 命令安全策略、受控执行、file replace 工作流与 checkpoint |
+| [新增网页模型 Client](docs/guides/add-client.md) | 接入新网页模型网站的完整指南 |
 
 <details>
 <summary>版本更新记录</summary>
@@ -148,6 +155,9 @@ cheapclaw --cleanup-session          # 退出时清理本次创建的网页会�
 ### 0.2.0
 
 - 新增 DeepSeek 网页模型客户端支持（`--model deepseek`）。
+- CSS 选择器外部化为 YAML 配置，新增异常层次结构和 `AgentClient` Protocol 接口。
+- 终端命令系统完善（扩展白名单、修复误拦截）；记忆系统升级（jieba 分词、更大上下文预算）。
+- 新增开发文档：架构概览、记忆系统、终端工具、新增 Client 指南。
 - 扩展单元测试覆盖，减少薅羊毛过程中翻车的概率。
 
 </details>

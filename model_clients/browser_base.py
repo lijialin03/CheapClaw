@@ -111,13 +111,16 @@ class BrowserFrontendAdapter(ABC):
         return None
 
     def startup_health_check(self) -> list[str]:
-        """验证关键选择器是否存在于当前 DOM，返回警告消息列表。"""
+        """验证关键选择器是否存在于当前 DOM，返回警告消息列表。
+
+        只检查页面加载时就应该存在的静态选择器（如输入框），
+        不检查动态渲染的选择器（如发送按钮，在用户输入后才由 JS 生成）。
+        """
         if not self.selector_config:
             return []
         issues = []
         critical = {
             "composer": self.selector_config.composer,
-            "send_button": self.selector_config.send_button,
         }
         for name, selector in critical.items():
             try:

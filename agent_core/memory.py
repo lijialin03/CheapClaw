@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
+import jieba
+
 from .config import MemoryConfig
 from .prompt_loader import render_prompt
 
@@ -28,20 +30,22 @@ def estimate_tokens(text: str) -> int:
 
 
 def tokenize_memory_text(text: str) -> list[str]:
-    """提取检索 token，英文保留词项，中文/混合文本补充字符 n-gram。"""
+    """提取检索 token：英文保留词项，中文使用 jieba 分词。"""
     if not text:
         return []
 
     lowered = text.lower()
-    tokens = re.findall(r"[a-z0-9_][a-z0-9_.-]*", lowered)
-    for cjk_run in re.findall(r"[\u4e00-\u9fff]+", lowered):
-        if len(cjk_run) <= 4:
-            tokens.append(cjk_run)
-        for size in (2, 3, 4):
-            tokens.extend(
-                cjk_run[index : index + size]
-                for index in range(len(cjk_run) - size + 1)
-            )
+
+    # Walker tokens: underline, dot, hypher combined with [a-z0-9] characters
+    en_tokens = re.findall(r"[a-z0-9_][a-z0-9_.-]*", lowered)
+
+    # Cjk tokens: jieba
+    cjk_runs = re.findall(r"[\u4e00-\u9fff]+", lowered)
+    cjk_tokens = []
+    for cjk_run in cjk_runs:
+        cjk_tokens.extend(jieba.lcut(cjk_run))
+
+    tokens = en_tokens + cjk_tokens
     return [token for token in tokens if token]
 
 

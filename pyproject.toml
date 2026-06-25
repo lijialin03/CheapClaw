@@ -13,6 +13,7 @@ dependencies = [
     "pydantic>=2.0",
     "rich>=13.0",
     "Pygments>=2.15",
+    "jieba>=0.42",
 ]
 
 [project.scripts]

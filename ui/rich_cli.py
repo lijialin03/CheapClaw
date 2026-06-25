@@ -144,7 +144,7 @@ class RichCLI:
                 self.console.print(
                     Panel(
                         message,
-                        title="⚠️  登录状态警告",
+                        title="⚠️  警告",
                         style="red",
                         border_style="red",
                     )

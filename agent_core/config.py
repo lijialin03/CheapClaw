@@ -12,9 +12,18 @@ class ToolConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     command_blacklist: tuple[str, ...] = ("rm",)
-    command_whitelist: tuple[str, ...] = ("ls", "cd", "cat")
+    command_whitelist: tuple[str, ...] = (
+        "ls",
+        "cd",
+        "cat",
+        "find",
+        "grep",
+        "head",
+        "tail",
+        "wc",
+    )
     observation_text_limit: int = Field(default=8000, gt=0)
-    subprocess_timeout_seconds: int = Field(default=10, gt=0)
+    subprocess_timeout_seconds: int = Field(default=15, gt=0)
     max_file_edit_bytes: int = Field(default=1_000_000, gt=0)
     checkpoint_keep_limit: int = Field(default=20, gt=0)
     confirm_command_replies: tuple[str, ...] = ("y", "yes", "确认", "执行", "是")
@@ -95,7 +104,7 @@ class ToolConfig(BaseModel):
 class AgentConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    max_text_chars: int = Field(default=3500, gt=0)
+    max_text_chars: int = Field(default=10000, gt=0)
     file_transport_enabled: bool = True
     tool_orchestration_enabled: bool = True
     max_tool_steps: int = Field(default=5, gt=0)
@@ -114,7 +123,7 @@ class BrowserConfig(BaseModel):
 class MemoryConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    context_budget: int = Field(default=2500, gt=0)
+    context_budget: int = Field(default=4000, gt=0)
     key_info_context_budget: int = Field(default=600, gt=0)
     summary_context_budget: int = Field(default=900, gt=0)
     recent_context_budget: int = Field(default=1000, gt=0)

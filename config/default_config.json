@@ -1,15 +1,15 @@
 {
   "agent": {
-    "max_text_chars": 3500,
+    "max_text_chars": 10000,
     "file_transport_enabled": true,
     "tool_orchestration_enabled": true,
     "max_tool_steps": 5,
     "upload_dir": null,
     "tools": {
       "command_blacklist": ["rm"],
-      "command_whitelist": ["ls", "cd", "cat"],
+      "command_whitelist": ["ls", "cd", "cat", "find", "grep", "head", "tail", "wc"],
       "observation_text_limit": 8000,
-      "subprocess_timeout_seconds": 10,
+      "subprocess_timeout_seconds": 15,
       "max_file_edit_bytes": 1000000,
       "checkpoint_keep_limit": 20,
       "confirm_command_replies": ["y", "yes", "确认", "执行", "是"],
@@ -29,7 +29,7 @@
     "storage_state_path": null
   },
   "memory": {
-    "context_budget": 2500,
+    "context_budget": 4000,
     "key_info_context_budget": 600,
     "summary_context_budget": 900,
     "recent_context_budget": 1000,

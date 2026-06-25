@@ -24,9 +24,7 @@ from .workspace import Workspace, WorkspaceError
 
 COMMAND_NAME_PATTERN = re.compile(r"[A-Za-z0-9._+-]+")
 DEFAULT_BUILTINS = frozenset({"file", "checkpoint"})
-DEFAULT_SHELL_OPERATORS = frozenset(
-    {"|", "||", "&", "&&", ";", ">", ">>", "<", "<<", "<<<"}
-)
+DEFAULT_SHELL_OPERATORS = frozenset({"|", "||", "&", "&&", ">", ">>", "<", "<<", "<<<"})
 
 
 class ToolCommandError(ValueError):

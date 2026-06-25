@@ -20,7 +20,7 @@ def test_memory_text_helpers_are_stable_and_relative():
 
     tokens = tokenize_memory_text("CheapClaw 读取配置文件")
     assert "cheapclaw" in tokens
-    assert "配置" in tokens or "配置文件" in tokens
+    assert "配置文件" in tokens or "配置" in tokens
     assert extract_memory_tokens("CheapClaw CheapClaw") == {"cheapclaw"}
     assert is_generic_short_query("继续", ("继续",))
     assert is_generic_short_query("ok", ("继续",))
