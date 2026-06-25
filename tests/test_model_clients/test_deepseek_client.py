@@ -2,23 +2,37 @@ import inspect
 
 import run
 from model_clients.deepseek import (
-    COMPOSER_SELECTOR,
-    SEND_BUTTON_SELECTOR,
     UPLOAD_BUTTON_SELECTOR,
     DeepSeekAdapter,
     DeepSeekClient,
 )
-from tests.mocks import DummyConfig, DummyLogger, FakePage, FakeSession
+from model_clients.deepseek.client import (
+    DeepSeekAdapter as _DeepSeekAdapter,  # for source inspection
+)
+from model_clients.selector_config import load_selector_config
+from tests.mocks import (
+    DummyConfig,
+    DummyLogger,
+    FakePage,
+    FakeSelectorConfig,
+    FakeSession,
+)
 
+DEEPSEEK_SELECTORS = load_selector_config("deepseek")
 LOGIN_STATE_JS = DeepSeekAdapter.load_js("login_state.js")
 LATEST_REPLY_JS = DeepSeekAdapter.load_js("latest_reply.js")
 ASSISTANT_COUNT_JS = DeepSeekAdapter.load_js("assistant_count.js")
 UPLOADED_FILE_CARD_JS = DeepSeekAdapter.load_js("uploaded_file_card.js")
 
 
-def bind_adapter(page):
-    adapter = DeepSeekAdapter()
-    adapter.bind(FakeSession(page), DummyConfig(), DummyLogger())
+def bind_adapter(page, selector_config=None):
+    adapter = DeepSeekAdapter(selector_config=selector_config)
+    adapter.bind(
+        FakeSession(page),
+        DummyConfig(),
+        DummyLogger(),
+        selector_config=adapter.selector_config,
+    )
     return adapter
 
 
@@ -32,6 +46,14 @@ def test_deepseek_client_instantiates_without_playwright():
     assert isinstance(client.adapter, DeepSeekAdapter)
     assert client.DISPLAY_NAME == "DeepSeek"
     assert client.config.storage_state_path.name == "storage_state_ds.json"
+
+
+def test_deepseek_client_has_selector_config():
+    client = DeepSeekClient(logger=DummyLogger())
+    cfg = client.adapter.selector_config
+    assert cfg.composer == 'textarea[name="search"]'
+    assert "[role='button']" in cfg.send_button
+    assert cfg.reply_content == ".ds-assistant-message-main-content"
 
 
 def test_deepseek_client_accepts_cleanup_session_flag():
@@ -49,21 +71,25 @@ def test_login_state_guidance_mentions_export_script_and_path():
 
 
 def test_composer_selector_uses_deepseek_search_textarea():
-    assert COMPOSER_SELECTOR == 'textarea[name="search"]'
-    assert 'textarea[name="search"]' in LOGIN_STATE_JS
-    assert "textarea:not" not in COMPOSER_SELECTOR
+    cfg = load_selector_config("deepseek")
+    assert cfg.composer == 'textarea[name="search"]'
+    assert (
+        "composers" in LOGIN_STATE_JS
+    )  # JS is parameterized, uses selectors.reply_content
+    assert "textarea:not" not in cfg.composer
     assert "textarea:not" not in LOGIN_STATE_JS
-    assert "placeholder" not in COMPOSER_SELECTOR.lower()
+    assert "placeholder" not in cfg.composer.lower()
 
 
 def test_send_button_selector_uses_deepseek_role_button_classes():
-    assert "[role='button']" in SEND_BUTTON_SELECTOR
-    assert "ds-button--primary" in SEND_BUTTON_SELECTOR
-    assert "ds-button--circle" in SEND_BUTTON_SELECTOR
-    assert ":not(.ds-button--disabled)" in SEND_BUTTON_SELECTOR
-    assert "button[aria-label]" not in SEND_BUTTON_SELECTOR
-    assert "has-text('发送')" not in SEND_BUTTON_SELECTOR
-    assert "has-text('Send')" not in SEND_BUTTON_SELECTOR
+    cfg = load_selector_config("deepseek")
+    assert "[role='button']" in cfg.send_button
+    assert "ds-button--primary" in cfg.send_button
+    assert "ds-button--circle" in cfg.send_button
+    assert ":not(.ds-button--disabled)" in cfg.send_button
+    assert "button[aria-label]" not in cfg.send_button
+    assert "has-text('发送')" not in cfg.send_button
+    assert "has-text('Send')" not in cfg.send_button
 
 
 def test_upload_button_selector_uses_stable_ds_button_classes():
@@ -112,18 +138,19 @@ def test_login_state_js_does_not_match_localized_login_button_text():
 def test_login_state_js_is_valid_javascript(page):
     page.set_content('<textarea name="search"></textarea>')
 
-    state = page.evaluate(LOGIN_STATE_JS)
+    state = page.evaluate(LOGIN_STATE_JS, DEEPSEEK_SELECTORS.model_dump())
 
     assert state["hasComposer"] is True
 
 
 def test_wait_until_ready_waits_for_composer_selector():
     page = FakePage()
-    adapter = bind_adapter(page)
+    cfg = load_selector_config("deepseek")
+    adapter = bind_adapter(page, selector_config=cfg)
 
     adapter.wait_until_ready()
 
-    assert page.waited_selectors == [(COMPOSER_SELECTOR, {"timeout": 1000})]
+    assert page.waited_selectors == [(cfg.composer, {"timeout": 1000})]
     assert page.waited_timeouts == [1000]
 
 
@@ -200,15 +227,16 @@ def test_cleanup_session_warns_when_ui_delete_fails():
 
 
 def test_delete_conversation_selectors_do_not_depend_on_localized_text():
-    source = inspect.getsource(DeepSeekAdapter.delete_recorded_conversation)
+    source = inspect.getsource(_DeepSeekAdapter.delete_recorded_conversation)
     confirm_source = inspect.getsource(
-        DeepSeekAdapter._confirm_delete_conversation_if_needed
+        _DeepSeekAdapter._confirm_delete_conversation_if_needed
     )
 
     assert "has_text" not in source
     assert "has-text" not in confirm_source
-    assert ".ds-dropdown-menu-option--error" in source
-    assert ".ds-button--error" in confirm_source
+    cfg = load_selector_config("deepseek")
+    assert ".ds-dropdown-menu-option--error" in cfg.conversation_delete_option
+    assert ".ds-button--error" in cfg.confirm_dialog_delete_button
 
 
 def test_latest_reply_text_strips_and_fails_closed():
@@ -229,8 +257,10 @@ def test_latest_reply_js_uses_deepseek_assistant_content_and_removes_citations(p
         """
     )
 
-    assert page.evaluate(LATEST_REPLY_JS) == "Hello world"
-    assert page.evaluate(ASSISTANT_COUNT_JS) == 2
+    assert (
+        page.evaluate(LATEST_REPLY_JS, DEEPSEEK_SELECTORS.model_dump()) == "Hello world"
+    )
+    assert page.evaluate(ASSISTANT_COUNT_JS, DEEPSEEK_SELECTORS.model_dump()) == 2
 
 
 def test_assistant_count_js_uses_virtual_list_key_when_available(page):
@@ -249,7 +279,7 @@ def test_assistant_count_js_uses_virtual_list_key_when_available(page):
         """
     )
 
-    assert page.evaluate(ASSISTANT_COUNT_JS) == 8
+    assert page.evaluate(ASSISTANT_COUNT_JS, DEEPSEEK_SELECTORS.model_dump()) == 8
 
 
 def test_uploaded_file_card_js_prefers_stable_deepseek_card_container(page):
@@ -267,8 +297,19 @@ def test_uploaded_file_card_js_prefers_stable_deepseek_card_container(page):
         """
     )
 
-    assert page.evaluate(UPLOADED_FILE_CARD_JS, "cheapclaw_upload_test.txt") is True
-    assert page.evaluate(UPLOADED_FILE_CARD_JS, "missing.txt") is False
+    assert (
+        page.evaluate(
+            UPLOADED_FILE_CARD_JS,
+            [DEEPSEEK_SELECTORS.model_dump(), "cheapclaw_upload_test.txt"],
+        )
+        is True
+    )
+    assert (
+        page.evaluate(
+            UPLOADED_FILE_CARD_JS, [DEEPSEEK_SELECTORS.model_dump(), "missing.txt"]
+        )
+        is False
+    )
 
 
 def test_generation_and_completion_fail_closed_sensibly():

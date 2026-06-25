@@ -11,9 +11,18 @@ class MinimalTextClient:
         self.reply = reply
         self.sent_texts = []
 
+    def start(self):
+        pass
+
+    def close(self):
+        pass
+
     def send_text(self, text, **kwargs):
         self.sent_texts.append(text)
         return self.reply
+
+    def consume_notices(self):
+        return []
 
 
 class MinimalFileClient(MinimalTextClient):

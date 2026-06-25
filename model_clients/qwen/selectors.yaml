@@ -1,0 +1,42 @@
+# Qwen 选择器配置
+# 网站改版时只需修改此文件，无需改动代码
+
+# 核心交互
+composer: '.message-input-textarea'
+send_button: 'button.send-button:not([disabled]), .send-button:not([disabled])'
+
+# 上传相关
+upload_menu_trigger: '.mode-select .ant-dropdown-trigger, .mode-select-open, #notification_update_popover_mode_select'
+upload_menu_item: 'text=上传附件'
+upload_file_input: '#filesUpload'
+
+# 回复区域检测
+reply_content: '.response-message-content'
+user_message: '.qwen-chat-message-user'
+
+# 上传后文件卡片
+upload_file_card_list: '.message-input-column-file .file-card-list'
+upload_file_card_item: '.fileitem-btn'
+upload_file_card_name: '.fileitem-file-name-text'
+upload_file_card_ext: '.fileitem-file-name-ext'
+
+# 生成状态关键词
+generation_stop_keywords:
+  - 停止
+  - 终止
+  - stop
+  - pause
+  - icon-stop
+  - icon-line-stop
+  - square
+
+# 登录检测
+login_url_keywords:
+  - passport
+  - login
+  - auth
+
+# UI 辅助
+guidance_close_button: >-
+  button.guidance-pc-close-btn, button.close-button,
+  .guidance-pc-close-btn, .close-button

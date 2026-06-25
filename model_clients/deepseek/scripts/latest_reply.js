@@ -1,4 +1,4 @@
-() => {
+(selectors) => {
     const visible = (el) => {
         if (!el) return false;
         const rect = el.getBoundingClientRect();
@@ -8,12 +8,14 @@
             style.visibility !== 'hidden' &&
             style.opacity !== '0';
     };
-    const nodes = Array.from(document.querySelectorAll('.ds-assistant-message-main-content'))
+    const nodes = Array.from(document.querySelectorAll(selectors.reply_content))
         .filter(visible)
         .filter((el) => (el.innerText || el.textContent || '').trim());
     const node = nodes[nodes.length - 1];
     if (!node) return '';
     const clone = node.cloneNode(true);
-    clone.querySelectorAll('.ds-markdown-cite').forEach((el) => el.remove());
+    if (selectors.reply_citation) {
+        clone.querySelectorAll(selectors.reply_citation).forEach((el) => el.remove());
+    }
     return (clone.innerText || clone.textContent || '').trim();
 }

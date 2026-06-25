@@ -1,4 +1,4 @@
-async () => {
+async (selectors) => {
     const visible = (el) => {
         if (!el) return false;
         const rect = el.getBoundingClientRect();

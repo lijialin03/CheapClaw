@@ -7,6 +7,7 @@ from tests.mocks import (
     FakeKeyboard,
     FakeLocator,
     FakePage,
+    FakeSelectorConfig,
     FakeSession,
 )
 
@@ -25,12 +26,19 @@ class MinimalAdapter(BrowserFrontendAdapter):
         pass
 
 
-def bind_adapter(page, **scripts):
+def bind_adapter(page, selector_config=None, **scripts):
     adapter = MinimalAdapter()
     for name, value in scripts.items():
         setattr(adapter, name, value)
     adapter._script_text = lambda s: s
-    adapter.bind(FakeSession(page), DummyConfig(), DummyLogger())
+    if selector_config is None:
+        selector_config = FakeSelectorConfig()
+    adapter.bind(
+        FakeSession(page),
+        DummyConfig(),
+        DummyLogger(),
+        selector_config=selector_config,
+    )
     return adapter
 
 
@@ -39,7 +47,7 @@ def test_latest_reply_text_uses_configured_script_and_strips():
     adapter = bind_adapter(page, LATEST_REPLY_SCRIPT="latest")
 
     assert adapter.latest_reply_text() == "answer"
-    assert page.scripts == ["latest"]
+    assert page.scripts and page.scripts[0][0] == "latest"
 
 
 def test_latest_reply_text_missing_or_exception_returns_empty_string():
@@ -117,7 +125,7 @@ def test_is_reply_complete_uses_configured_reply_complete_script():
     )
 
     assert adapter.is_reply_complete() is True
-    assert page.scripts == ["complete"]
+    assert page.scripts and page.scripts[0][0] == "complete"
 
 
 def test_is_reply_complete_falls_back_to_inverse_generation_state():
@@ -141,7 +149,8 @@ def test_is_reply_complete_without_scripts_returns_false():
 
 def test_wait_until_sendable_uses_send_button_selector():
     page = FakePage()
-    adapter = bind_adapter(page, SEND_BUTTON_SELECTOR="send")
+    cfg = FakeSelectorConfig(send_button="send")
+    adapter = bind_adapter(page, selector_config=cfg)
 
     adapter.wait_until_sendable(timeout=123)
 
@@ -150,11 +159,8 @@ def test_wait_until_sendable_uses_send_button_selector():
 
 def test_wait_until_sendable_uses_fallback_selector_after_send_button_failure():
     page = FakePage(wait_selector_failures={"send"})
-    adapter = bind_adapter(
-        page,
-        SEND_BUTTON_SELECTOR="send",
-        SENDABLE_FALLBACK_SELECTOR="composer",
-    )
+    cfg = FakeSelectorConfig(send_button="send", sendable_fallback="composer")
+    adapter = bind_adapter(page, selector_config=cfg)
 
     adapter.wait_until_sendable()
 
@@ -182,46 +188,60 @@ def test_user_message_count_uses_configured_script_and_falls_back_to_zero():
 
 def test_is_sent_prefers_user_count_advanced_script():
     page = FakePage()
+    cfg = FakeSelectorConfig()
     adapter = bind_adapter(
         page,
+        selector_config=cfg,
         USER_COUNT_ADVANCED_SCRIPT="advanced",
         COMPOSER_EMPTY_SCRIPT="empty",
     )
 
     assert adapter._is_sent(previous_user_message_count=3) is True
-    assert page.waited_functions == [("advanced", {"arg": 3, "timeout": 8000})]
+    assert len(page.waited_functions) == 1
+    assert page.waited_functions[0][0] == "advanced"
+    assert page.waited_functions[0][1]["timeout"] == 8000
+    assert page.waited_functions[0][1]["arg"][1] == 3
 
 
 def test_is_sent_falls_back_to_composer_empty_for_text_messages():
     page = FakePage(wait_function_failures={"advanced"})
+    cfg = FakeSelectorConfig()
     adapter = bind_adapter(
         page,
+        selector_config=cfg,
         USER_COUNT_ADVANCED_SCRIPT="advanced",
         COMPOSER_EMPTY_SCRIPT="empty",
     )
 
     assert adapter._is_sent(previous_user_message_count=3, had_text=True) is True
-    assert page.waited_functions == [
-        ("advanced", {"arg": 3, "timeout": 8000}),
-        ("empty", {"timeout": 5000}),
-    ]
+    assert len(page.waited_functions) == 2
+    assert page.waited_functions[0][0] == "advanced"
+    assert page.waited_functions[0][1]["timeout"] == 8000
+    assert page.waited_functions[0][1]["arg"][1] == 3
+    assert page.waited_functions[1][0] == "empty"
+    assert page.waited_functions[1][1]["timeout"] == 5000
 
 
 def test_is_sent_without_text_does_not_fallback_to_composer_empty():
     page = FakePage(wait_function_failures={"advanced"})
+    cfg = FakeSelectorConfig()
     adapter = bind_adapter(
         page,
+        selector_config=cfg,
         USER_COUNT_ADVANCED_SCRIPT="advanced",
         COMPOSER_EMPTY_SCRIPT="empty",
     )
 
     assert adapter._is_sent(previous_user_message_count=3, had_text=False) is False
-    assert page.waited_functions == [("advanced", {"arg": 3, "timeout": 8000})]
+    assert len(page.waited_functions) == 1
+    assert page.waited_functions[0][0] == "advanced"
+    assert page.waited_functions[0][1]["timeout"] == 8000
 
 
 def test_fill_prompt_after_upload_uses_composer_and_fallback_insert_text():
     page = FakePage(fill_exc=True)
-    adapter = bind_adapter(page, COMPOSER_SELECTOR="composer")
+    cfg = FakeSelectorConfig(composer="composer")
+    adapter = bind_adapter(page, selector_config=cfg)
 
     assert adapter.fill_prompt_after_upload("prompt") == {"had_text": True}
     assert page.locator_waits == [("composer", {"state": "visible", "timeout": 1000})]
@@ -232,14 +252,16 @@ def test_fill_prompt_after_upload_uses_composer_and_fallback_insert_text():
 
 def test_send_current_message_uses_base_flow_and_configured_selectors():
     page = FakePage()
+    cfg = FakeSelectorConfig(composer="composer", send_button="send")
     adapter = bind_adapter(
         page,
-        COMPOSER_SELECTOR="composer",
-        SEND_BUTTON_SELECTOR="send",
+        selector_config=cfg,
         USER_COUNT_ADVANCED_SCRIPT="advanced",
     )
 
     adapter.send_current_message(previous_user_message_count=1)
 
     assert page.presses == [("composer", "Enter")]
-    assert page.waited_functions == [("advanced", {"arg": 1, "timeout": 8000})]
+    assert len(page.waited_functions) == 1
+    assert page.waited_functions[0][0] == "advanced"
+    assert page.waited_functions[0][1]["timeout"] == 8000

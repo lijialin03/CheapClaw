@@ -1,4 +1,4 @@
-() => {
+(selectors) => {
     const textOf = (el) => (el && (el.innerText || el.textContent) || '').replace(/\s+/g, ' ').trim();
     const visible = (el) => {
         if (!el) return false;
@@ -9,7 +9,7 @@
             style.visibility !== 'hidden' &&
             style.opacity !== '0';
     };
-    const composers = Array.from(document.querySelectorAll('textarea[name="search"]'))
+    const composers = Array.from(document.querySelectorAll(selectors.composer))
         .filter(visible);
     const authButtons = Array.from(document.querySelectorAll('button, a, [role="button"]'))
         .filter(visible)

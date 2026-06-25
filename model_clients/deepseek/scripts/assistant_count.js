@@ -1,5 +1,5 @@
-() => {
-    const nodes = Array.from(document.querySelectorAll('.ds-assistant-message-main-content'))
+(selectors) => {
+    const nodes = Array.from(document.querySelectorAll(selectors.reply_content))
         .filter((el) => (el.innerText || el.textContent || '').trim());
     const keys = nodes
         .map((el) => el.closest('[data-virtual-list-item-key]'))

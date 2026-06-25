@@ -1,5 +1,4 @@
-() => {
-    const textOf = (el) => (el && (el.innerText || el.textContent) || '').replace(/\s+/g, ' ').trim();
+(selectors) => {
     const visible = (el) => {
         if (!el) return false;
         const rect = el.getBoundingClientRect();
@@ -9,10 +8,13 @@
             style.visibility !== 'hidden' &&
             style.opacity !== '0';
     };
+    const keywords = selectors.generation_stop_keywords || [];
+    const pattern = new RegExp(keywords.join('|'), 'i');
     return Array.from(document.querySelectorAll('button, [role="button"], [aria-label], svg, .spinner, [class*="loading" i]'))
         .some((el) => {
             if (!visible(el)) return false;
+            const textOf = (el) => (el && (el.innerText || el.textContent) || '').replace(/\s+/g, ' ').trim();
             const label = `${textOf(el)} ${el.getAttribute('aria-label') || ''} ${el.className || ''}`;
-            return /(stop|停止|generating|生成中|loading|加载|spinner)/i.test(label);
+            return pattern.test(label);
         });
 }

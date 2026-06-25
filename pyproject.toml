@@ -34,8 +34,8 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 agent_core = ["prompts/*.md"]
-"model_clients.qwen" = ["scripts/*.js"]
-"model_clients.deepseek" = ["scripts/*.js"]
+"model_clients.qwen" = ["scripts/*.js", "selectors.yaml"]
+"model_clients.deepseek" = ["scripts/*.js", "selectors.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from model_clients.protocols import AgentClient
 from utils.text_helpers import markdown_to_plain
 
 from .config import AgentConfig
@@ -18,7 +19,7 @@ class Agent:
 
     def __init__(
         self,
-        client: Any,
+        client: AgentClient,
         memory: Memory,
         workspace: Any = None,
         config: AgentConfig | None = None,
@@ -95,9 +96,7 @@ class Agent:
         )
 
     def start(self) -> None:
-        start = getattr(self.client, "start", None)
-        if callable(start):
-            start()
+        self.client.start()
 
     def run_turn(
         self, user_input: str, event_callback: Optional[Callable[[dict], None]] = None
@@ -129,10 +128,7 @@ class Agent:
         return self.memory.consume_events()
 
     def consume_notices(self) -> list[dict[str, str]]:
-        consume = getattr(self.client, "consume_notices", None)
-        if callable(consume):
-            return consume()
-        return []
+        return self.client.consume_notices()
 
     def compress_memory(self) -> dict:
         """手动压缩历史记忆，返回 UI 可展示的结构化状态。"""
@@ -172,12 +168,10 @@ class Agent:
         if self._closed:
             return
         self._closed = True
-        close = getattr(self.client, "close", None)
         try:
             self.memory.close_session()
         finally:
-            if callable(close):
-                close()
+            self.client.close()
 
     def _run_legacy_turn(
         self, user_input: str, event_callback: Optional[Callable[[dict], None]] = None

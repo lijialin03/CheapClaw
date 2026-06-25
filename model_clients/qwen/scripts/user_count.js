@@ -1,1 +1,1 @@
-() => document.querySelectorAll('.qwen-chat-message-user').length
+(selectors) => document.querySelectorAll(selectors.user_message).length

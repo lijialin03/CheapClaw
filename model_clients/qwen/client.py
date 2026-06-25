@@ -3,6 +3,7 @@ from pathlib import Path
 from agent_core.config import BrowserConfig
 
 from ..browser_base import BrowserFrontendAdapter, BrowserModelClient
+from ..selector_config import SelectorConfig, load_selector_config
 
 STORAGE_STATE_PATH = Path.cwd() / "config" / "storage_state_qwen.json"
 
@@ -10,19 +11,12 @@ BROWSER_ARGS = [
     "--disable-blink-features=AutomationControlled",
 ]
 
-COMPOSER_SELECTOR = ".message-input-textarea"
-SEND_BUTTON_SELECTOR = (
-    "button.send-button:not([disabled]), .send-button:not([disabled])"
-)
-
 
 class QwenAdapter(BrowserFrontendAdapter):
     """Qwen-specific DOM selectors and browser interactions."""
 
     # ── 类属性 ──
 
-    COMPOSER_SELECTOR = COMPOSER_SELECTOR
-    SEND_BUTTON_SELECTOR = SEND_BUTTON_SELECTOR
     SEND_FAILURE_MESSAGE = "发送失败：未检测到新用户消息或发送完成状态"
 
     LATEST_REPLY_SCRIPT = "latest_reply.js"
@@ -36,6 +30,9 @@ class QwenAdapter(BrowserFrontendAdapter):
     OVERLAY_AUTO_DISMISS_SCRIPT = "overlay_auto_dismiss.js"
     REPLY_PREFERENCE_SCRIPT = "reply_preference.js"
 
+    def __init__(self, selector_config: SelectorConfig | None = None):
+        self.selector_config = selector_config or load_selector_config("qwen")
+
     # ── 抽象生命周期 ──
 
     def default_url(self) -> str:
@@ -45,11 +42,14 @@ class QwenAdapter(BrowserFrontendAdapter):
         """检查当前页面是否已登录。"""
         try:
             current_url = self.page.url.lower()
-            if any(keyword in current_url for keyword in ["passport", "login", "auth"]):
+            login_keywords = self.selector_config.login_url_keywords
+            if any(keyword in current_url for keyword in login_keywords):
                 self.logger.warning(f"检测到重定向至登录页: {current_url}")
                 return False
 
-            state = self.page.evaluate(self.load_js(self.LOGIN_STATE_SCRIPT))
+            state = self.page.evaluate(
+                self.load_js(self.LOGIN_STATE_SCRIPT), self._selector_args()
+            )
             self.logger.debug(f"登录状态检查: {state}")
             return state.get("authStatus") == 200 and not state.get("authButtons")
         except Exception as e:
@@ -57,7 +57,9 @@ class QwenAdapter(BrowserFrontendAdapter):
             return False
 
     def wait_until_ready(self) -> None:
-        self.page.wait_for_selector(COMPOSER_SELECTOR, timeout=self.config.timeout)
+        self.page.wait_for_selector(
+            self.selector_config.composer, timeout=self.config.timeout
+        )
         self.page.wait_for_timeout(1000)
 
     # ── 可选生命周期钩子 ──
@@ -74,6 +76,24 @@ class QwenAdapter(BrowserFrontendAdapter):
     def after_page_loaded(self) -> None:
         self._inject_overlay_auto_dismiss()
 
+    def detect_generation_error(self) -> str | None:
+        """检测 Qwen 页面是否显示模型错误。"""
+        try:
+            error_texts = [
+                "请求过于频繁",
+                "服务不可用",
+                "Service Unavailable",
+                "Something went wrong",
+                "额度上限",
+            ]
+            body_text = (self.page.inner_text("body") or "").lower()
+            for text in error_texts:
+                if text.lower() in body_text:
+                    return f"检测到 Qwen 生成错误: {text}"
+        except Exception:
+            pass
+        return None
+
     # ── 文本发送 ──
 
     def before_text_send(
@@ -82,20 +102,20 @@ class QwenAdapter(BrowserFrontendAdapter):
         auto_remove_limit: bool = True,
         auto_close_guidance: bool = True,
     ):
-        textarea = self.page.locator(COMPOSER_SELECTOR)
+        textarea = self.page.locator(self.selector_config.composer)
         textarea.wait_for(state="visible", timeout=self.config.timeout)
 
         if auto_close_guidance:
             self._try_close_guidance()
-            textarea = self.page.locator(COMPOSER_SELECTOR)
+            textarea = self.page.locator(self.selector_config.composer)
             textarea.wait_for(state="visible", timeout=self.config.timeout)
 
         if auto_remove_limit:
             self.page.evaluate(
-                """() => {
-                    const textarea = document.querySelector('.message-input-textarea');
+                f"""() => {{
+                    const textarea = document.querySelector('{self.selector_config.composer}');
                     if (textarea) textarea.removeAttribute('maxlength');
-                }"""
+                }}"""
             )
 
         textarea.click()
@@ -163,18 +183,20 @@ class QwenAdapter(BrowserFrontendAdapter):
 
     def _open_upload_menu(self) -> None:
         """点击输入框左侧加号，打开包含"上传附件"的菜单。"""
-        plus_button = self.page.locator(
-            ".mode-select .ant-dropdown-trigger, .mode-select-open, #notification_update_popover_mode_select"
-        ).first
+        trigger = self.selector_config.upload_menu_trigger
+        plus_button = self.page.locator(trigger).first
         plus_button.wait_for(state="visible", timeout=5000)
         plus_button.click(timeout=5000)
 
     def _upload_attachment_item(self):
         """返回上传附件菜单项；该菜单可能挂载在 body 弹层中。"""
-        return self.page.locator("text=上传附件").first
+        item_selector = self.selector_config.upload_menu_item or "text=上传附件"
+        return self.page.locator(item_selector).first
 
     def _upload_file_by_input(self, file_path: Path) -> None:
-        file_input = self.page.locator("#filesUpload")
+        file_input = self.page.locator(
+            self.selector_config.upload_file_input or "#filesUpload"
+        )
         file_input.wait_for(state="attached", timeout=self.config.timeout)
         file_input.set_input_files(str(file_path))
 
@@ -182,31 +204,43 @@ class QwenAdapter(BrowserFrontendAdapter):
         """等待上传后的文件卡片出现在输入框附件区域。"""
         stem = file_path.stem
         suffix = file_path.suffix
+        cfg = self.selector_config
+        card_list = (
+            cfg.upload_file_card_list or ".message-input-column-file .file-card-list"
+        )
+        card_item = cfg.upload_file_card_item or ".fileitem-btn"
+        card_name = cfg.upload_file_card_name or ".fileitem-file-name-text"
+        card_ext = cfg.upload_file_card_ext or ".fileitem-file-name-ext"
+
         self.page.wait_for_selector(
-            ".message-input-column-file .file-card-list .fileitem-btn",
+            card_list,
             state="visible",
             timeout=self.config.timeout,
         )
         self.page.wait_for_function(
-            """({stem, suffix}) => {
-                const cards = Array.from(document.querySelectorAll('.message-input-column-file .file-card-list .fileitem-btn'));
-                return cards.some((card) => {
-                    const name = card.querySelector('.fileitem-file-name-text')?.textContent?.trim() || '';
-                    const ext = card.querySelector('.fileitem-file-name-ext')?.textContent?.trim() || '';
-                    const fullName = `${name}${ext}`;
-                    return (name === stem && ext === suffix) || fullName === `${stem}${suffix}`;
-                });
-            }""",
+            f"""({{stem, suffix}}) => {{
+                const cards = Array.from(document.querySelectorAll('{card_item}'));
+                return cards.some((card) => {{
+                    const name = card.querySelector('{card_name}')?.textContent?.trim() || '';
+                    const ext = card.querySelector('{card_ext}')?.textContent?.trim() || '';
+                    const fullName = `${{name}}${{ext}}`;
+                    return (name === stem && ext === suffix) || fullName === `${{stem}}${{suffix}}`;
+                }});
+            }}""",
             arg={"stem": stem, "suffix": suffix},
             timeout=self.config.timeout,
         )
 
     def _try_close_guidance(self) -> bool:
         """如果当前有首页引导/示例区域，尝试关闭它。"""
+        if not self.selector_config.guidance_close_button:
+            return False
         try:
-            close_button = self.page.locator(
-                "button.guidance-pc-close-btn, button.close-button, .guidance-pc-close-btn, .close-button"
-            ).first
+            selectors = [
+                s.strip() for s in self.selector_config.guidance_close_button.split(",")
+            ]
+            selector = ", ".join(selectors)
+            close_button = self.page.locator(selector).first
             if not close_button.is_visible(timeout=1000):
                 return False
             close_button.click(timeout=5000)
@@ -247,8 +281,9 @@ class QwenClient(BrowserModelClient):
         :param timeout: 默认超时时间（毫秒）
         :param storage_state_path: 可迁移登录态 JSON，适合复制到无界面开发机复用
         """
+        adapter = QwenAdapter()
         super().__init__(
-            adapter=QwenAdapter(),
+            adapter=adapter,
             config=config,
             headless=headless,
             timeout=timeout,

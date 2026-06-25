@@ -19,6 +19,45 @@ class DummyConfig:
     timeout = 1000
 
 
+class FakeSelectorConfig:
+    """测试用选择器配置，模拟 SelectorConfig 的行为。"""
+
+    def __init__(self, **overrides):
+        # 核心交互
+        self.composer = "textarea.composer"
+        self.send_button = "button.send:not([disabled])"
+        self.sendable_fallback = None
+        # 上传相关
+        self.upload_button = None
+        self.upload_menu_trigger = None
+        self.upload_menu_item = None
+        self.upload_file_input = None
+        # 回复区域检测
+        self.reply_content = ".reply"
+        self.reply_citation = ".cite"
+        self.user_message = ".user-msg"
+        self.file_card = ".file-card"
+        # 对话管理
+        self.conversation_item_link = None
+        self.conversation_menu_button = None
+        self.conversation_delete_option = None
+        self.confirm_dialog_delete_button = None
+        # 生成状态
+        self.generation_stop_keywords = ["stop", "停止"]
+        # 登录检测
+        self.login_url_keywords = ["/sign_in", "/login", "auth"]
+        # UI 辅助
+        self.guidance_close_button = None
+        # 文件卡片
+        self.upload_file_card_list = None
+        self.upload_file_card_item = None
+        self.upload_file_card_name = None
+        self.upload_file_card_ext = None
+        # 允许覆盖
+        for key, value in overrides.items():
+            setattr(self, key, value)
+
+
 class FakeSession:
     def __init__(self, page):
         self.page = page
@@ -80,8 +119,9 @@ class FakePage:
         self.inserted_texts = []
         self.keyboard = FakeKeyboard(self)
 
-    def evaluate(self, script):
-        self.scripts.append(script)
+    def evaluate(self, script, arg=None):
+        appended = (script, arg) if arg is not None else script
+        self.scripts.append(appended)
         if self.exc:
             raise RuntimeError("evaluate failed")
         if self.values:

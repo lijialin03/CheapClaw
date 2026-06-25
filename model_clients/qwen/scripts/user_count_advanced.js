@@ -1,1 +1,4 @@
-(previousCount) => document.querySelectorAll('.qwen-chat-message-user').length > previousCount
+(arg) => {
+    const [selectors, previousCount] = arg;
+    return document.querySelectorAll(selectors.user_message).length > previousCount;
+}

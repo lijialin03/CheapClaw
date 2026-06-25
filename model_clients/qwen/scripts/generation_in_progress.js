@@ -1,4 +1,4 @@
-() => {
+(selectors) => {
     const visible = (el) => {
         if (!el) return false;
         const rect = el.getBoundingClientRect();
@@ -14,6 +14,7 @@
         el.getAttribute('title'),
         el.getAttribute('data-testid'),
     ].filter(Boolean).join(' ');
+    const keywords = selectors.generation_stop_keywords || [];
     const buttons = Array.from(document.querySelectorAll('button, [role="button"], .send-button'))
         .filter(visible);
     return buttons.some((button) => {
@@ -22,7 +23,8 @@
             use.getAttribute('href') || use.getAttribute('xlink:href') || ''
         ).join(' ');
         const merged = `${labels} ${hrefs}`;
-        return /停止|终止|stop|pause|icon-stop|icon-line-stop|square/i.test(merged) &&
-            !/send|发送|arrow-up|icon-send/i.test(merged);
+        const stopPattern = new RegExp(keywords.join('|'), 'i');
+        const sendPattern = /send|发送|arrow-up|icon-send/i;
+        return stopPattern.test(merged) && !sendPattern.test(merged);
     });
 }

@@ -104,7 +104,7 @@ class Logger:
             return None
 
 
-_default_logger = None
+_loggers: dict[tuple, Logger] = {}
 
 
 def get_logger(
@@ -114,9 +114,9 @@ def get_logger(
     console: bool = False,
     log_level: str = None,
 ) -> Logger:
-    global _default_logger
-    if _default_logger is None:
-        _default_logger = Logger(
+    cache_key = (name, log_dir, screenshot_dir)
+    if cache_key not in _loggers:
+        _loggers[cache_key] = Logger(
             name, log_dir, screenshot_dir, console=console, log_level=log_level
         )
-    return _default_logger
+    return _loggers[cache_key]

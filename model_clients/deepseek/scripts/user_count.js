@@ -1,1 +1,1 @@
-() => document.querySelectorAll('[data-testid*="user" i], [class*="user" i]').length
+(selectors) => document.querySelectorAll(selectors.user_message).length

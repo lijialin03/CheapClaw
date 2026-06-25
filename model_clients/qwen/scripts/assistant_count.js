@@ -1,1 +1,1 @@
-() => document.querySelectorAll('.response-message-content').length
+(selectors) => document.querySelectorAll(selectors.reply_content).length

@@ -1,0 +1,52 @@
+# DeepSeek 选择器配置
+# 网站改版时只需修改此文件，无需改动代码
+
+# 核心交互
+composer: 'textarea[name="search"]'
+send_button: >-
+  [role='button'].ds-button--primary.ds-button--filled.ds-button--circle:not(.ds-button--disabled),
+  button[type='submit']:not([disabled])
+sendable_fallback: 'textarea[name="search"]'
+
+# 上传相关
+upload_button: >-
+  [role='button'].ds-button--iconLabelPrimary.ds-button--icon.ds-button--capsule.ds-button--s,
+  [role='button'].ds-button--iconLabelPrimary.ds-button--capsule,
+  button[aria-label*='attach' i], button[aria-label*='upload' i],
+  button[aria-label*='file' i], button[aria-label*='附件']
+upload_file_input: 'input[type=file]'
+
+# 回复区域检测
+reply_content: '.ds-assistant-message-main-content'
+reply_citation: '.ds-markdown-cite'
+user_message: '[data-testid*="user" i], [class*="user" i]'
+file_card: '.ds-animated-size-item'
+
+# 对话管理
+conversation_item_link: 'a[href^="/a/chat/s/"]'
+conversation_menu_button: >-
+  [role='button'].ds-button--iconLabelTertiary.ds-button--icon
+conversation_delete_option: >-
+  .ds-dropdown-menu[role='menu'] .ds-dropdown-menu-option--error
+confirm_dialog_delete_button: >-
+  .ds-modal-content[role='dialog'] [role='button'].ds-button--error,
+  .ds-modal-focus-lock [role='dialog'] [role='button'].ds-button--error,
+  [role='dialog'] [role='button'].ds-button--error
+
+# 生成状态关键词
+generation_stop_keywords:
+  - stop
+  - 停止
+  - generating
+  - 生成中
+  - loading
+  - 加载
+  - spinner
+
+# 登录检测
+login_url_keywords:
+  - /sign_in
+  - /signin
+  - /login
+  - passport
+  - auth

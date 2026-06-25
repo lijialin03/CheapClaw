@@ -1,1 +1,4 @@
-(previousCount) => document.querySelectorAll('[data-testid*="user" i], [class*="user" i]').length > previousCount
+(arg) => {
+    const [selectors, previousCount] = arg;
+    return document.querySelectorAll(selectors.user_message).length > previousCount;
+}

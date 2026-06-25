@@ -4,19 +4,12 @@ from pathlib import Path
 from agent_core.config import BrowserConfig
 
 from ..browser_base import BrowserFrontendAdapter, BrowserModelClient
+from ..selector_config import SelectorConfig, load_selector_config
 
 DEEPSEEK_URL = "https://chat.deepseek.com"
 STORAGE_STATE_PATH = Path.cwd() / "config" / "storage_state_ds.json"
 BROWSER_ARGS = ["--disable-blink-features=AutomationControlled"]
 CONVERSATION_URL_RE = re.compile(r"/a/chat/s/([^/?#]+)")
-
-COMPOSER_SELECTOR = 'textarea[name="search"]'
-
-SEND_BUTTON_SELECTOR = (
-    "[role='button'].ds-button--primary.ds-button--filled.ds-button--circle"
-    ":not(.ds-button--disabled), "
-    "button[type='submit']:not([disabled])"
-)
 
 UPLOAD_BUTTON_SELECTOR = (
     "[role='button'].ds-button--iconLabelPrimary.ds-button--icon"
@@ -32,9 +25,6 @@ class DeepSeekAdapter(BrowserFrontendAdapter):
 
     # ── 类属性 ──
 
-    COMPOSER_SELECTOR = COMPOSER_SELECTOR
-    SEND_BUTTON_SELECTOR = SEND_BUTTON_SELECTOR
-    SENDABLE_FALLBACK_SELECTOR = COMPOSER_SELECTOR
     SEND_FAILURE_MESSAGE = "DeepSeek 发送失败：未检测到新用户消息或输入框清空"
     SEND_LOG_PREFIX = "DeepSeek "
 
@@ -47,7 +37,8 @@ class DeepSeekAdapter(BrowserFrontendAdapter):
     LOGIN_STATE_SCRIPT = "login_state.js"
     UPLOADED_FILE_CARD_SCRIPT = "uploaded_file_card.js"
 
-    def __init__(self):
+    def __init__(self, selector_config: SelectorConfig | None = None):
+        self.selector_config = selector_config or load_selector_config("deepseek")
         self.conversation_id: str | None = None
 
     # ── 抽象生命周期 ──
@@ -58,12 +49,17 @@ class DeepSeekAdapter(BrowserFrontendAdapter):
     def is_logged_in(self) -> bool:
         try:
             current_url = self.page.url.lower()
-            login_keywords = ["/sign_in", "/signin", "/login", "passport", "auth"]
+            login_keywords = self.selector_config.login_url_keywords
             if any(keyword in current_url for keyword in login_keywords):
                 self.logger.warning(f"检测到重定向至登录页: {current_url}")
                 return False
 
-            state = self.page.evaluate(self.load_js(self.LOGIN_STATE_SCRIPT)) or {}
+            state = (
+                self.page.evaluate(
+                    self.load_js(self.LOGIN_STATE_SCRIPT), self._selector_args()
+                )
+                or {}
+            )
             self.logger.debug(f"DeepSeek 登录状态检查: {state}")
             return bool(state.get("hasComposer"))
         except Exception as e:
@@ -71,7 +67,9 @@ class DeepSeekAdapter(BrowserFrontendAdapter):
             return False
 
     def wait_until_ready(self) -> None:
-        self.page.wait_for_selector(COMPOSER_SELECTOR, timeout=self.config.timeout)
+        self.page.wait_for_selector(
+            self.selector_config.composer, timeout=self.config.timeout
+        )
         self.page.wait_for_timeout(1000)
         self.logger.screenshot("wait_until_ready", full_page=True)
 
@@ -102,6 +100,25 @@ class DeepSeekAdapter(BrowserFrontendAdapter):
             self.logger.screenshot("cleanup_session", full_page=True)
             self.logger.warning(f"DeepSeek 会话清理失败: {type(e).__name__}: {e}")
 
+    def detect_generation_error(self) -> str | None:
+        """检测 DeepSeek 页面是否显示模型错误。"""
+        try:
+            error_texts = [
+                "额度上限",
+                "Something went wrong",
+                "something went wrong",
+                "请求过于频繁",
+                "服务不可用",
+                "Service Unavailable",
+            ]
+            body_text = (self.page.inner_text("body") or "").lower()
+            for text in error_texts:
+                if text.lower() in body_text:
+                    return f"检测到 DeepSeek 生成错误: {text}"
+        except Exception:
+            pass
+        return None
+
     # ── 会话管理 (DeepSeek 特有) ──
 
     def current_conversation_id(self) -> str | None:
@@ -118,22 +135,20 @@ class DeepSeekAdapter(BrowserFrontendAdapter):
         item = self.page.locator(f'a[href="{href}"]').first
         item.wait_for(state="visible", timeout=5000)
         item.hover(timeout=5000)
-        menu_button = item.locator(
-            "[role='button'].ds-button--iconLabelTertiary.ds-button--icon"
-        ).first
+        menu_button = item.locator(self.selector_config.conversation_menu_button).first
         menu_button.wait_for(state="visible", timeout=5000)
         menu_button.click(timeout=5000)
 
         delete_option = self.page.locator(
-            ".ds-dropdown-menu[role='menu'] .ds-dropdown-menu-option--error"
+            self.selector_config.conversation_delete_option
         ).first
         delete_option.wait_for(state="visible", timeout=5000)
         delete_option.click(timeout=5000)
         self._confirm_delete_conversation_if_needed()
         self.page.wait_for_timeout(1000)
         self.page.wait_for_function(
-            """
-            (href) => !document.querySelector(`a[href="${href}"]`)
+            f"""
+            (href) => !document.querySelector(`a[href="${{href}}"]`)
             """,
             arg=href,
             timeout=10000,
@@ -192,7 +207,9 @@ class DeepSeekAdapter(BrowserFrontendAdapter):
     # ── 内部工具 ──
 
     def _upload_by_input(self, file_path: Path) -> None:
-        file_input = self.page.locator("input[type=file]").first
+        file_input = self.page.locator(
+            self.selector_config.upload_file_input or "input[type=file]"
+        ).first
         file_input.wait_for(state="attached", timeout=5000)
         file_input.set_input_files(str(file_path))
 
@@ -207,7 +224,7 @@ class DeepSeekAdapter(BrowserFrontendAdapter):
         try:
             self.page.wait_for_function(
                 self.load_js(self.UPLOADED_FILE_CARD_SCRIPT),
-                arg=file_path.name,
+                arg=[self._selector_args(), file_path.name],
                 timeout=5000,
             )
         except Exception as e:
@@ -216,11 +233,15 @@ class DeepSeekAdapter(BrowserFrontendAdapter):
             )
 
     def _confirm_delete_conversation_if_needed(self) -> None:
-        selectors = (
-            ".ds-modal-content[role='dialog'] [role='button'].ds-button--error",
-            ".ds-modal-focus-lock [role='dialog'] [role='button'].ds-button--error",
-            "[role='dialog'] [role='button'].ds-button--error",
-        )
+        confirm_selector = self.selector_config.confirm_dialog_delete_button
+        if confirm_selector:
+            selectors = [s.strip() for s in confirm_selector.split(",")]
+        else:
+            selectors = [
+                ".ds-modal-content[role='dialog'] [role='button'].ds-button--error",
+                ".ds-modal-focus-lock [role='dialog'] [role='button'].ds-button--error",
+                "[role='dialog'] [role='button'].ds-button--error",
+            ]
         for selector in selectors:
             try:
                 button = self.page.locator(selector).first
@@ -248,8 +269,9 @@ class DeepSeekClient(BrowserModelClient):
         storage_state_path: str | Path | None = None,
         cleanup_session: bool = False,
     ):
+        adapter = DeepSeekAdapter()
         super().__init__(
-            adapter=DeepSeekAdapter(),
+            adapter=adapter,
             config=config,
             headless=headless,
             timeout=timeout,

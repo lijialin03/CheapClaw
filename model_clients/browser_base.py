@@ -5,9 +5,16 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 from agent_core.config import BrowserConfig
+from model_clients.exceptions import (
+    GenerationFailureError,
+    LoginExpiredError,
+    NetworkError,
+)
+from model_clients.selector_config import SelectorConfig
 from utils import get_logger
 
 
@@ -19,11 +26,8 @@ class BrowserClientConfig(BrowserConfig):
 class BrowserFrontendAdapter(ABC):
     """Site-specific browser behavior used by BrowserModelClient workflows."""
 
-    # ── 类属性 (CSS 选择器 & JS 脚本引用) ──
+    # ── 类属性 (JS 脚本引用) ──
 
-    COMPOSER_SELECTOR: str | None = None
-    SEND_BUTTON_SELECTOR: str | None = None
-    SENDABLE_FALLBACK_SELECTOR: str | None = None
     SEND_FAILURE_MESSAGE = "发送失败：未检测到新用户消息或输入框清空"
     SEND_LOG_PREFIX = ""
 
@@ -55,10 +59,17 @@ class BrowserFrontendAdapter(ABC):
 
     # ── 绑定 & 属性 ──
 
-    def bind(self, session, config: BrowserClientConfig, logger) -> None:
+    def bind(
+        self,
+        session,
+        config: BrowserClientConfig,
+        logger,
+        selector_config: SelectorConfig | None = None,
+    ) -> None:
         self.session = session
         self.config = config
         self.logger = logger
+        self.selector_config = selector_config
 
     @property
     def page(self):
@@ -95,26 +106,51 @@ class BrowserFrontendAdapter(ABC):
     def cleanup_session(self) -> None:
         pass
 
+    def detect_generation_error(self) -> str | None:
+        """检测页面是否显示模型错误，返回错误消息或 None。"""
+        return None
+
+    def startup_health_check(self) -> list[str]:
+        """验证关键选择器是否存在于当前 DOM，返回警告消息列表。"""
+        if not self.selector_config:
+            return []
+        issues = []
+        critical = {
+            "composer": self.selector_config.composer,
+            "send_button": self.selector_config.send_button,
+        }
+        for name, selector in critical.items():
+            try:
+                if self.page.locator(selector).count() == 0:
+                    issues.append(
+                        f"关键选择器未找到: {name} ('{selector}')，网站可能已改版"
+                    )
+            except Exception:
+                issues.append(f"选择器语法无效: {name} ('{selector}')")
+        return issues
+
     # ── 文本发送 ──
 
     def before_text_send(self, text: str, **kwargs):
         return None
 
     def wait_until_sendable(self, timeout: int = None) -> None:
-        if not self.SEND_BUTTON_SELECTOR:
+        if not self.selector_config:
             return
+        send_button = self.selector_config.send_button
+        fallback = self.selector_config.sendable_fallback
         wait_timeout = timeout or self.config.timeout
         try:
             self.page.wait_for_selector(
-                self.SEND_BUTTON_SELECTOR,
+                send_button,
                 state="visible",
                 timeout=wait_timeout,
             )
         except Exception:
-            if not self.SENDABLE_FALLBACK_SELECTOR:
+            if not fallback:
                 raise
             self.page.wait_for_selector(
-                self.SENDABLE_FALLBACK_SELECTOR,
+                fallback,
                 state="visible",
                 timeout=wait_timeout,
             )
@@ -187,14 +223,33 @@ class BrowserFrontendAdapter(ABC):
     # ── 内部工具 (playwright 底层操作封装) ──
 
     def _composer_locator(self):
-        if not self.COMPOSER_SELECTOR:
-            raise NotImplementedError("adapter must define COMPOSER_SELECTOR")
-        return self.page.locator(self.COMPOSER_SELECTOR).first
+        if not self.selector_config:
+            raise NotImplementedError("adapter must have selector_config")
+        return self.page.locator(self.selector_config.composer).first
 
     def _send_button_locator(self):
-        if not self.SEND_BUTTON_SELECTOR:
-            raise NotImplementedError("adapter must define SEND_BUTTON_SELECTOR")
-        return self.page.locator(self.SEND_BUTTON_SELECTOR).first
+        if not self.selector_config:
+            raise NotImplementedError("adapter must have selector_config")
+        return self.page.locator(self.selector_config.send_button).first
+
+    def _selector_args(self) -> dict[str, Any]:
+        """返回传给参数化 JS 脚本的选择器字典。"""
+        if not self.selector_config:
+            return {}
+        cfg = self.selector_config
+        return {
+            "composer": cfg.composer,
+            "send_button": cfg.send_button,
+            "reply_content": cfg.reply_content,
+            "reply_citation": cfg.reply_citation,
+            "user_message": cfg.user_message,
+            "file_card": cfg.file_card,
+            "generation_stop_keywords": cfg.generation_stop_keywords,
+            "upload_file_card_list": cfg.upload_file_card_list,
+            "upload_file_card_item": cfg.upload_file_card_item,
+            "upload_file_card_name": cfg.upload_file_card_name,
+            "upload_file_card_ext": cfg.upload_file_card_ext,
+        }
 
     def _user_message_count(self) -> int:
         count = self._evaluate_int_script(self._script_text(self.USER_COUNT_SCRIPT))
@@ -207,7 +262,7 @@ class BrowserFrontendAdapter(ABC):
             try:
                 self.page.wait_for_function(
                     self._script_text(self.USER_COUNT_ADVANCED_SCRIPT),
-                    arg=previous_user_message_count,
+                    arg=[self._selector_args(), previous_user_message_count],
                     timeout=8000,
                 )
                 return True
@@ -221,7 +276,9 @@ class BrowserFrontendAdapter(ABC):
             return False
         try:
             self.page.wait_for_function(
-                self._script_text(self.COMPOSER_EMPTY_SCRIPT), timeout=5000
+                self._script_text(self.COMPOSER_EMPTY_SCRIPT),
+                arg=self._selector_args(),
+                timeout=5000,
             )
             return True
         except Exception:
@@ -231,7 +288,7 @@ class BrowserFrontendAdapter(ABC):
         if not script:
             return ""
         try:
-            return (self.page.evaluate(script) or "").strip()
+            return (self.page.evaluate(script, self._selector_args()) or "").strip()
         except Exception:
             return ""
 
@@ -239,7 +296,7 @@ class BrowserFrontendAdapter(ABC):
         if not script:
             return None
         try:
-            return int(self.page.evaluate(script))
+            return int(self.page.evaluate(script, self._selector_args()))
         except Exception:
             return None
 
@@ -247,7 +304,7 @@ class BrowserFrontendAdapter(ABC):
         if not script:
             return False
         try:
-            return bool(self.page.evaluate(script))
+            return bool(self.page.evaluate(script, self._selector_args()))
         except Exception:
             return False
 
@@ -310,11 +367,17 @@ class BrowserSession:
         if logged_in:
             adapter.wait_until_ready()
             adapter.after_page_loaded()
+            self._run_health_check(adapter)
             self.logger.debug("Page loaded")
         else:
             self.logger.warning(
                 "未登录 fallback 模式已启动，后续模型交互可能无法正常工作。"
             )
+
+    def _run_health_check(self, adapter: BrowserFrontendAdapter) -> None:
+        issues = adapter.startup_health_check()
+        for issue in issues:
+            self._add_notice("warning", issue)
 
     def close(self) -> None:
         if self.context:
@@ -403,6 +466,14 @@ class BrowserConversationWorkflow:
     def page(self):
         return self.session.page
 
+    def _check_login_on_error(self) -> None:
+        """出错时检查登录态，将过期登录映射为 LoginExpiredError。"""
+        if not self.adapter.is_logged_in():
+            guidance = self.adapter.login_state_guidance(
+                self.session._storage_state_path_text()
+            )
+            raise LoginExpiredError(f"登录态已过期，请重新登录。\n{guidance}")
+
     def wait_for_reply(
         self, previous_assistant_message_count: int | None = None
     ) -> str:
@@ -414,72 +485,90 @@ class BrowserConversationWorkflow:
         stable_completion_seconds = 1.5
 
         while time.time() < deadline:
-            baseline_advanced = True
-            if previous_assistant_message_count is not None:
-                current_assistant_message_count = self.adapter.assistant_message_count()
-                if (
-                    current_assistant_message_count is not None
-                    and current_assistant_message_count
-                    < previous_assistant_message_count
-                ):
-                    self.logger.debug(
-                        "assistant 回复节点数量回退，重置等待 baseline: "
-                        f"当前 {current_assistant_message_count}, baseline {previous_assistant_message_count}"
+            try:
+                baseline_advanced = True
+                if previous_assistant_message_count is not None:
+                    current_assistant_message_count = (
+                        self.adapter.assistant_message_count()
                     )
-                    previous_assistant_message_count = current_assistant_message_count
-                    logged_waiting_for_baseline = False
-                baseline_advanced = (
-                    current_assistant_message_count is not None
-                    and current_assistant_message_count
-                    > previous_assistant_message_count
-                )
-                if not baseline_advanced and not logged_waiting_for_baseline:
-                    self.logger.debug(
-                        "等待新 assistant 回复节点出现: "
-                        f"当前 {current_assistant_message_count}, baseline {previous_assistant_message_count}"
-                    )
-                    logged_waiting_for_baseline = True
-
-            if baseline_advanced:
-                ab_reply = self.adapter.try_handle_reply_preference_ui()
-                if ab_reply:
-                    return ab_reply
-
-                reply = self.adapter.latest_reply_text()
-                if reply and reply != last_reply:
-                    last_reply = reply
-                    completed_reply = ""
-                    completed_at = None
-                    self.logger.debug(f"检测到回复更新，当前长度 {len(reply)}")
-
-                if (
-                    reply
-                    and self.adapter.is_reply_complete()
-                    and not self.adapter.is_generation_in_progress()
-                ):
-                    now = time.time()
-                    if completed_reply != reply:
-                        completed_reply = reply
-                        completed_at = now
-                    elif (
-                        completed_at is not None
-                        and now - completed_at >= stable_completion_seconds
+                    if (
+                        current_assistant_message_count is not None
+                        and current_assistant_message_count
+                        < previous_assistant_message_count
                     ):
-                        self.logger.debug(f"回复完成，长度 {len(reply)}")
-                        return reply
-                else:
-                    completed_reply = ""
-                    completed_at = None
+                        self.logger.debug(
+                            "assistant 回复节点数量回退，重置等待 baseline: "
+                            f"当前 {current_assistant_message_count}, baseline {previous_assistant_message_count}"
+                        )
+                        previous_assistant_message_count = (
+                            current_assistant_message_count
+                        )
+                        logged_waiting_for_baseline = False
+                    baseline_advanced = (
+                        current_assistant_message_count is not None
+                        and current_assistant_message_count
+                        > previous_assistant_message_count
+                    )
+                    if not baseline_advanced and not logged_waiting_for_baseline:
+                        self.logger.debug(
+                            "等待新 assistant 回复节点出现: "
+                            f"当前 {current_assistant_message_count}, baseline {previous_assistant_message_count}"
+                        )
+                        logged_waiting_for_baseline = True
+
+                if baseline_advanced:
+                    # 检查模型是否返回错误
+                    gen_error = self.adapter.detect_generation_error()
+                    if gen_error:
+                        self.logger.screenshot("generation_failure", full_page=True)
+                        raise GenerationFailureError(gen_error)
+
+                    ab_reply = self.adapter.try_handle_reply_preference_ui()
+                    if ab_reply:
+                        return ab_reply
+
+                    reply = self.adapter.latest_reply_text()
+                    if reply and reply != last_reply:
+                        last_reply = reply
+                        completed_reply = ""
+                        completed_at = None
+                        self.logger.debug(f"检测到回复更新，当前长度 {len(reply)}")
+
+                    if (
+                        reply
+                        and self.adapter.is_reply_complete()
+                        and not self.adapter.is_generation_in_progress()
+                    ):
+                        now = time.time()
+                        if completed_reply != reply:
+                            completed_reply = reply
+                            completed_at = now
+                        elif (
+                            completed_at is not None
+                            and now - completed_at >= stable_completion_seconds
+                        ):
+                            self.logger.debug(f"回复完成，长度 {len(reply)}")
+                            return reply
+                    else:
+                        completed_reply = ""
+                        completed_at = None
+            except GenerationFailureError:
+                raise
+            except LoginExpiredError:
+                raise
+            except Exception as e:
+                raise NetworkError(f"浏览器通信异常: {e}") from e
 
             self.page.wait_for_timeout(500)
 
         self.logger.screenshot("wait_for_reply_timeout", full_page=True)
+        self._check_login_on_error()
         if last_reply:
             self.logger.warning(
                 f"等待回复完成超时，返回已捕获回复，长度 {len(last_reply)}"
             )
             return last_reply
-        raise TimeoutError("等待 AI 回复超时，请注意是否达到今日额度上限")
+        raise TimeoutError("等待 AI 回复超时，请检查网络连接或重试")
 
     def send_text(self, text: str, **options) -> str:
         send_kwargs = self._as_kwargs(self.adapter.before_text_send(text, **options))
@@ -579,7 +668,12 @@ class BrowserModelClient:
         self.cleanup_session_on_close = cleanup_session
         self.adapter = adapter
         self.session = BrowserSession(config, self.logger)
-        self.adapter.bind(self.session, config, self.logger)
+        self.adapter.bind(
+            self.session,
+            config,
+            self.logger,
+            selector_config=getattr(self.adapter, "selector_config", None),
+        )
         self.workflow = BrowserConversationWorkflow(
             self.session, self.adapter, config, self.logger
         )
@@ -606,7 +700,25 @@ class BrowserModelClient:
         return self.workflow.wait_for_reply()
 
     def send_text(self, text: str, **options) -> str:
-        return self.workflow.send_text(text, **options)
+        try:
+            return self.workflow.send_text(text, **options)
+        except LoginExpiredError as e:
+            raise LoginExpiredError(
+                f"{e}\n{self.adapter.login_state_guidance(self.session._storage_state_path_text())}"
+            ) from e
+        except GenerationFailureError:
+            raise
+        except NetworkError as e:
+            raise NetworkError(f"{e}\n建议检查网络连接后重试") from e
 
     def send_file(self, file_path: str, prompt: str = None) -> str:
-        return self.workflow.send_file(file_path, prompt=prompt)
+        try:
+            return self.workflow.send_file(file_path, prompt=prompt)
+        except LoginExpiredError as e:
+            raise LoginExpiredError(
+                f"{e}\n{self.adapter.login_state_guidance(self.session._storage_state_path_text())}"
+            ) from e
+        except GenerationFailureError:
+            raise
+        except NetworkError as e:
+            raise NetworkError(f"{e}\n建议检查网络连接后重试") from e

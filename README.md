@@ -129,6 +129,10 @@ cheapclaw --cleanup-session          # 退出时清理本次创建的网页会�
 - 记忆压缩会通过当前网页模型生成摘要，因此可能产生一次可见的网页交互。
 - `storage_state_*.json` 等同于网页登录凭据，请像对待 cookie 一样保护它们。
 
+## 开发
+
+如果你想为 CheapClaw 新增网页模型客户端，请参阅[新增网页模型 Client 指南](docs/guides/add-client.md)。
+
 <details>
 <summary>版本更新记录</summary>
 

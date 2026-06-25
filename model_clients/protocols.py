@@ -1,0 +1,16 @@
+from typing import Any, Protocol, runtime_checkable
+
+
+@runtime_checkable
+class AgentClient(Protocol):
+    logger: Any
+
+    def start(self) -> None: ...
+
+    def send_text(self, text: str, **options) -> str: ...
+
+    def send_file(self, file_path: str, prompt: str | None = None) -> str: ...
+
+    def close(self) -> None: ...
+
+    def consume_notices(self) -> list[dict[str, str]]: ...
