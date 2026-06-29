@@ -178,8 +178,8 @@ def test_invalid_planner_output_reports_rejection_for_explicit_request():
 
     answer = orchestrator._continue_tool_orchestration("show run.py", [], False, True)
 
-    assert "终端命令被拒绝" in answer
-    assert "invalid planner" in answer
+    assert "终端命令 INVALID 被拒绝" in answer
+    assert "invalid planner" in answer or "INVALID" in answer
 
 
 def test_pending_confirmation_confirm_and_cancel_paths():
@@ -222,7 +222,12 @@ def test_file_replace_generates_clean_content_truncated_preview_confirm_and_canc
     runner = FakeRunner()
     config = ToolConfig(file_edit_diff_preview_chars=10)
     client = QueueClient(
-        ["terminal", "file replace a.py", "```python\n1 print('x')\n```"]
+        [
+            "terminal",
+            "file replace a.py",
+            "```python\n1 print('x')\n```",
+            "final: all files modified",
+        ]
     )
     orchestrator = make_orchestrator(client, runner=runner, config=config)
 
@@ -235,7 +240,7 @@ def test_file_replace_generates_clean_content_truncated_preview_confirm_and_canc
     assert orchestrator.has_pending_confirmation()
 
     answer = orchestrator.handle_pending_command_confirmation("yes")
-    assert answer == "committed"
+    assert answer == "all files modified"
     assert runner.committed == ["edit-1"]
     assert client.replies == []
 

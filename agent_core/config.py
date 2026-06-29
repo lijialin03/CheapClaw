@@ -22,6 +22,17 @@ class ToolConfig(BaseModel):
         "tail",
         "wc",
     )
+    safe_pipe_consumers: tuple[str, ...] = (
+        "head",
+        "tail",
+        "grep",
+        "wc",
+        "sort",
+        "uniq",
+        "cut",
+        "tr",
+        "sed",
+    )
     observation_text_limit: int = Field(default=8000, gt=0)
     subprocess_timeout_seconds: int = Field(default=15, gt=0)
     max_file_edit_bytes: int = Field(default=1_000_000, gt=0)
@@ -80,6 +91,7 @@ class ToolConfig(BaseModel):
     @field_validator(
         "command_blacklist",
         "command_whitelist",
+        "safe_pipe_consumers",
         "confirm_command_replies",
         "tool_router_positive_replies",
         "tool_router_negative_replies",

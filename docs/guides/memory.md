@@ -41,7 +41,7 @@ CheapClaw 采用三层分层记忆架构，在有限的上下文预算内最大�
 
 ### Level 3: KeyInfoStore（关键信息）
 
-持久化的 key-value 存储，用于跨 session 保留用户偏好、技术决策和项目约定。
+持久化的 key-value 存储，用于跨 session 保留用户偏好、技术决策和项目约定。存储为人类可读的 `.cheapclaw/key_info.yaml`（YAML 格式），用户可直接编辑。在对话中可通过 `/keyinfo set/del/get` 命令管理，无需手动操作文件。
 
 ## 上下文组装流程
 
@@ -71,8 +71,9 @@ BM25 在轻量级记忆检索场景下效果足够，配合 jieba 中文分词�
 
 ## Session 管理
 
-- **会话归档**：退出时将对话消息归档为 `memory-{session_id}.json`，可选地先压缩再归档
-- **跨 session 持久化**：`Memory.save()` 写入 key-info、session 历史等跨 session 信息；`Memory.load()` 在下次运行时恢复
+- **会话归档**：退出时将对话消息归档为 `memory-{session_id}.md`（人类可读的 Markdown 格式），包含完整对话转录、摘要和关键信息快照
+- **会话索引**：`.cheapclaw/memory/sessions.json` 维护所有历史会话的轻量索引
+- **持久化策略**：仅在退出时（`close_session()`）保存 key_info 和会话索引，不再每轮对话都写入磁盘
 
 ## 配置参考
 

@@ -2,7 +2,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from utils.text_helpers import clean_generated_file_content
+from utils.text.generated_file import clean_generated_file_content
 
 from .config import ToolConfig
 from .prompt_loader import render_prompt
@@ -18,6 +18,8 @@ class PendingCommandConfirmation:
     used_tool: bool
     explicit_workspace_request: bool
     file_edit_id: str | None = None
+    is_pipeline: bool = False
+    pipeline_segments: list[list[str]] | None = None
 
 
 class ToolOrchestrator:
@@ -65,10 +67,18 @@ class ToolOrchestrator:
         self.pending_command_confirmation = None
         if pending.file_edit_id:
             observation = self.tool_runner.commit_file_edit(pending.file_edit_id)
-            return observation.get("stdout") or "文件修改已执行。"
+            fallback = observation.get("stdout") or "文件修改已执行。"
+        else:
+            action = {
+                "action": "command",
+                "command": pending.command,
+                "argv": pending.argv,
+                "is_pipeline": pending.is_pipeline,
+                "pipeline_segments": pending.pipeline_segments,
+            }
+            observation = self._execute_action(action, event_callback)
+            fallback = "命令已执行。"
 
-        action = {"action": "command", "command": pending.command, "argv": pending.argv}
-        observation = self._execute_action(action, event_callback)
         observations = [*pending.observations, observation]
         return (
             self._continue_tool_orchestration(
@@ -78,7 +88,7 @@ class ToolOrchestrator:
                 pending.explicit_workspace_request,
                 event_callback,
             )
-            or "命令已执行。"
+            or fallback
         )
 
     def should_use_terminal_tools(
@@ -129,7 +139,7 @@ class ToolOrchestrator:
             except ValueError as exc:
                 if not used_tool and not explicit_workspace_request:
                     return None
-                return f"终端命令被拒绝，未执行任何本地命令：{exc}"
+                return f"终端命令 {reply} 被拒绝，未执行任何本地命令：{exc}"
 
             if action["action"] == "final":
                 if not used_tool and not explicit_workspace_request:
@@ -161,6 +171,8 @@ class ToolOrchestrator:
                     user_input=user_input,
                     used_tool=used_tool,
                     explicit_workspace_request=explicit_workspace_request,
+                    is_pipeline=action.get("is_pipeline", False),
+                    pipeline_segments=action.get("pipeline_segments"),
                 )
                 if action["argv"][:2] == ["checkpoint", "restore"]:
                     return f"准备恢复 checkpoint `{action['argv'][2]}`，这会覆盖当前文件内容。{self._confirmation_prompt()}"

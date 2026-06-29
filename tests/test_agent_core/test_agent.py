@@ -232,7 +232,7 @@ def test_legacy_chat_path_updates_memory_with_markdown_cleaned_text():
     assert reply.startswith("# Title")
     assert memory.user_messages == ["hello"]
     assert memory.assistant_messages == ["Title\n\nbold and code"]
-    assert memory.saved == 1
+    assert memory.saved == 0
     assert memory.callbacks == [events.append, None]
     assert client.sent_texts
 

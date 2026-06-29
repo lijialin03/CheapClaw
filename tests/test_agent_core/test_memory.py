@@ -14,7 +14,7 @@ from agent_core.memory import (
 )
 
 
-def test_memory_text_helpers_are_stable_and_relative():
+def test_memory_token_helpers_are_stable_and_relative():
     assert estimate_tokens("") == 0
     assert estimate_tokens("你好") > estimate_tokens("hi")
 
@@ -75,7 +75,7 @@ def test_memory_compressor_and_key_info_store():
 
 def test_memory_selects_relevant_context_and_skips_generic_queries(tmp_path):
     memory = Memory(
-        persist_path=tmp_path / "memory.json",
+        key_info_path=tmp_path / "key_info.yaml",
         config=MemoryConfig(context_budget=500, recent_context_budget=200),
     )
     memory.set_key_info("python", "Use pytest for CheapClaw tests")
@@ -173,16 +173,19 @@ def test_memory_compress_with_summary_model():
 
 
 def test_memory_save_load_clear_and_close_session_archive(tmp_path):
-    persist_path = tmp_path / "memory.json"
+    key_info_path = tmp_path / "key_info.yaml"
+    session_dir = tmp_path / "sessions"
     memory = Memory(
-        persist_path=persist_path, llm_call=lambda prompt: "session summary"
+        key_info_path=key_info_path,
+        session_dir=session_dir,
+        llm_call=lambda prompt: "session summary",
     )
     memory.set_key_info("tool", "pytest")
     memory.add_user_message("hello")
     memory.add_assistant_message("world")
-    memory.save()
+    memory._save_key_info()
 
-    loaded = Memory(persist_path=persist_path)
+    loaded = Memory(key_info_path=key_info_path, session_dir=session_dir)
     assert loaded.get_key_info("tool") == "pytest"
     assert loaded.buffer.message_count() == 0
 
@@ -198,10 +201,11 @@ def test_memory_save_load_clear_and_close_session_archive(tmp_path):
     assert closed["message_count"] == 4
     assert closed["compressed"] is True
     assert closed["summary_count"] == 1
-    archive_path = tmp_path / closed["path"].split("/")[-1]
+    archive_path = session_dir / f"memory-{memory.session_id}.md"
     assert archive_path.exists()
-    archive = json.loads(archive_path.read_text(encoding="utf-8"))
-    assert archive["messages"]
-    assert archive["summaries"][0]["content"] == "session summary"
+    archive = archive_path.read_text(encoding="utf-8")
+    assert "# Session:" in archive
+    assert "session summary" in archive
+    assert "## Key Info" in archive
     assert memory.buffer.message_count() == 0
     assert memory.stats()["last_session"]["id"] == closed["id"]

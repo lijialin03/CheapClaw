@@ -6,11 +6,16 @@
 
 | 正常薅羊毛 | 偶尔也会失手 |
 | --- | --- |
-| <img src="docs/images/running-state.png" alt="薅羊毛Claw 正常运行状态"> | <img src="docs/images/error-state.png" alt="薅羊毛Claw 错误运行状态"> |
+| <img src="docs/images/running-state.webp" alt="薅羊毛Claw 正常运行状态"> | <img src="docs/images/error-state.webp" alt="薅羊毛Claw 错误运行状态"> |
 
 **在这里你可以：** 在没有 API Key 时和网页模型在终端里对话；读取当前工作区；做轻量代码分析、总结和定位；准备小修小补的文件修改。
 
 **但臣妾做不到：** 专业代码 Agent 的完全替代品，也不适合大规模无人值守改仓库、依赖稳定 API SLA 的生产流程，或处理敏感凭据和私密数据。
+
+## 功能演示
+
+想看看实际效果？这里是一个用 CheapClaw 开发个人主页的完整运行记录。
+[查看demo →](docs/demo.md)
 
 ## 环境要求
 
@@ -98,6 +103,7 @@ cheapclaw --cleanup-session          # 退出时清理本次创建的网页会�
 | `/clear` | 清屏 |
 | `/compress` | 手动压缩当前会话记忆 |
 | `/memory` | 查看记忆状态 |
+| `/keyinfo` | 查看持久化关键信息（`set/del/get` 子命令管理） |
 | `/exit` | 保存并退出 |
 
 ## 配置

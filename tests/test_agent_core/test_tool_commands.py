@@ -21,13 +21,85 @@ def test_terminal_command_policy_normalizes_command_paths_and_quoting():
 
 
 @pytest.mark.parametrize(
-    "command", ["rm file.txt", "ls | wc", "ls $HOME", "FOO=bar ls", "ls `pwd`"]
+    "command",
+    [
+        "rm file.txt",
+        "ls $HOME",
+        "FOO=bar ls",
+        "ls `pwd`",
+        "ls > out.txt",
+        "ls && echo done",
+    ],
 )
 def test_terminal_command_policy_rejects_blacklist_shell_ops_and_expansion(command):
     policy = TerminalCommandPolicy(blacklist=("rm",), whitelist=("ls",))
 
     with pytest.raises(ToolCommandError):
         policy.validate_command(command)
+
+
+def test_terminal_command_policy_allows_safe_pipeline():
+    policy = TerminalCommandPolicy(
+        blacklist=("rm",), whitelist=("ls", "find", "cat", "grep", "head")
+    )
+
+    cmd = policy.validate_command("find . -name '*.py' | head -20")
+    assert cmd.is_pipeline is True
+    assert cmd.pipeline_segments == [
+        ["find", ".", "-name", "*.py"],
+        ["head", "-20"],
+    ]
+    assert policy.requires_confirmation(cmd) is True
+
+
+def test_terminal_command_policy_rejects_dangerous_pipeline():
+    policy = TerminalCommandPolicy(
+        blacklist=("rm",), whitelist=("ls", "find", "cat", "grep")
+    )
+
+    # 管线中的命令不在白名单: bash
+    with pytest.raises(ToolCommandError, match="不在白名单"):
+        policy.validate_command("find . | bash")
+
+    # 管线末端不是安全消费者: cat
+    with pytest.raises(ToolCommandError, match="只读消费者"):
+        policy.validate_command("find . | cat")
+
+    # 重定向仍然被拦截
+    with pytest.raises(ToolCommandError, match="不允许 shell 操作符"):
+        policy.validate_command("find . > /tmp/out")
+
+    # 后台执行仍然被拦截
+    with pytest.raises(ToolCommandError, match="不允许 shell 操作符"):
+        policy.validate_command("find . &")
+
+
+def test_terminal_command_policy_rejects_pipeline_with_env_var():
+    policy = TerminalCommandPolicy(blacklist=("rm",), whitelist=("ls", "find", "cat"))
+
+    with pytest.raises(ToolCommandError, match="环境变量赋值"):
+        policy.validate_command("FOO=bar find . | head")
+
+
+def test_terminal_command_policy_multi_stage_pipeline():
+    policy = TerminalCommandPolicy(whitelist=("find", "grep", "sort", "head", "wc"))
+
+    cmd = policy.validate_command("find . -name '*.py' | grep test | wc -l")
+    assert cmd.is_pipeline is True
+    assert len(cmd.pipeline_segments) == 3
+    assert cmd.pipeline_segments[0] == ["find", ".", "-name", "*.py"]
+    assert cmd.pipeline_segments[1] == ["grep", "test"]
+    assert cmd.pipeline_segments[2] == ["wc", "-l"]
+
+
+def test_terminal_command_policy_pipeline_syntax_errors():
+    policy = TerminalCommandPolicy(whitelist=("find", "head"))
+
+    with pytest.raises(ToolCommandError, match="\\| 前缺少命令"):
+        policy.validate_command("| find .")
+
+    with pytest.raises(ToolCommandError, match="\\| 后缺少命令"):
+        policy.validate_command("find . |")
 
 
 def test_terminal_command_policy_validates_builtins():
@@ -83,11 +155,15 @@ def test_runner_parse_planner_reply_final_command_prose_and_rejected_shell(tmp_p
         "action": "command",
         "command": "ls",
         "argv": ["ls"],
+        "is_pipeline": False,
+        "pipeline_segments": None,
     }
     assert runner.parse_planner_reply("This is ordinary prose.") == {
         "action": "command",
         "command": "This is ordinary prose.",
         "argv": ["This", "is", "ordinary", "prose."],
+        "is_pipeline": False,
+        "pipeline_segments": None,
     }
     assert runner.parse_planner_reply("普通说明")["action"] == "final"
 
@@ -278,3 +354,41 @@ def test_runner_checkpoint_restore_removes_file_created_after_checkpoint(tmp_pat
 
     assert restored["ok"] is True
     assert not target.exists()
+
+
+def test_runner_execute_safe_pipeline(tmp_path):
+    """集成测试：安全的管线命令通过 Python 级 Popen 链式执行。"""
+    target = tmp_path / "a.py"
+    target.write_text("hello\nworld\n", encoding="utf-8")
+
+    runner = ControlledTerminalRunner(
+        Workspace(tmp_path),
+        policy=TerminalCommandPolicy(
+            blacklist=("rm",),
+            whitelist=("find", "cat", "head", "wc", "grep"),
+        ),
+    )
+    cmd = runner.policy.validate_command(f"cat {target} | wc -l")
+    assert cmd.is_pipeline is True
+
+    action = {
+        "command": cmd.command,
+        "argv": cmd.argv,
+        "is_pipeline": cmd.is_pipeline,
+        "pipeline_segments": cmd.pipeline_segments,
+    }
+    result = runner.execute(action)
+    assert result["ok"] is True
+    assert "2" in result["stdout"]
+
+
+def test_runner_pipeline_requires_confirmation(tmp_path):
+    runner = ControlledTerminalRunner(
+        Workspace(tmp_path),
+        policy=TerminalCommandPolicy(
+            blacklist=("rm",),
+            whitelist=("find", "cat", "head", "wc"),
+        ),
+    )
+    cmd = runner.policy.validate_command("find . -name '*.py' | head -5")
+    assert runner.requires_confirmation(cmd) is True

@@ -13,11 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from utils.text_helpers import (
-    first_nonempty_line,
-    strip_code_fence,
-    truncate_text_fields,
-)
+from utils.text.generic import first_nonempty_line, truncate_text_fields
+from utils.text.markdown import strip_outer_code_fence
 
 from .config import ToolConfig
 from .workspace import Workspace, WorkspaceError
@@ -35,6 +32,8 @@ class ToolCommandError(ValueError):
 class TerminalCommand:
     command: str
     argv: list[str]
+    is_pipeline: bool = False
+    pipeline_segments: list[list[str]] | None = None
 
 
 class TerminalCommandPolicy:
@@ -46,6 +45,7 @@ class TerminalCommandPolicy:
         whitelist: Iterable[str] | None = None,
         builtins: Iterable[str] = DEFAULT_BUILTINS,
         shell_operators: Iterable[str] = DEFAULT_SHELL_OPERATORS,
+        safe_pipe_consumers: Iterable[str] | None = None,
     ):
         defaults = ToolConfig()
         self.blacklist = frozenset(
@@ -56,6 +56,13 @@ class TerminalCommandPolicy:
         )
         self.builtins = frozenset(builtins)
         self.shell_operators = frozenset(shell_operators)
+        self.safe_pipe_consumers = frozenset(
+            defaults.safe_pipe_consumers
+            if safe_pipe_consumers is None
+            else safe_pipe_consumers
+        )
+        # 危险操作符集合（管线符 | 单独处理，不在其中）
+        self._dangerous_operators = self.shell_operators - {"|"}
 
     def summary(self) -> str:
         blacklist = ", ".join(sorted(self.blacklist)) or "无"
@@ -100,7 +107,13 @@ class TerminalCommandPolicy:
         if action != "command":
             raise ToolCommandError("action 必须是 command 或 final")
         command = self.validate_command(data.get("command", ""))
-        action = {"action": "command", "command": command.command, "argv": command.argv}
+        action = {
+            "action": "command",
+            "command": command.command,
+            "argv": command.argv,
+            "is_pipeline": command.is_pipeline,
+            "pipeline_segments": command.pipeline_segments,
+        }
         if self.requires_confirmation(command):
             action["requires_confirmation"] = True
         return action
@@ -111,12 +124,21 @@ class TerminalCommandPolicy:
         argv = shlex.split(command_text.strip())
         if not argv:
             raise ToolCommandError("命令必须是非空字符串")
+
+        pipeline_segments = self.validate_shell_structures(argv)
+        if pipeline_segments is not None:
+            return TerminalCommand(
+                command=shlex.join(argv),
+                argv=argv,
+                is_pipeline=True,
+                pipeline_segments=pipeline_segments,
+            )
+
         program = Path(argv[0]).name
         if not COMMAND_NAME_PATTERN.fullmatch(program):
             raise ToolCommandError(f"命令名非法: {program}")
         if program in self.blacklist:
             raise ToolCommandError(f"命令在黑名单内: {program}")
-        self.reject_shell_structures(argv)
         normalized_argv = [program, *argv[1:]]
         command = TerminalCommand(
             command=shlex.join(normalized_argv), argv=normalized_argv
@@ -133,6 +155,9 @@ class TerminalCommandPolicy:
         )
         if not argv:
             return False
+        # 管线命令一律需要确认
+        if isinstance(command, TerminalCommand) and command.is_pipeline:
+            return True
         if argv[0] == "file":
             return True
         if argv[0] == "checkpoint" and len(argv) > 1 and argv[1] == "restore":
@@ -176,9 +201,19 @@ class TerminalCommandPolicy:
             len(argv) > 1 or "/" in argv[0] or text.startswith("./")
         )
 
-    def reject_shell_structures(self, argv: Iterable[str]) -> None:
+    def validate_shell_structures(self, argv: list[str]) -> list[list[str]] | None:
+        """校验并解析命令行参数中的 shell 结构。
+
+        始终拒绝危险操作符（>、>>、<、&、&&、|| 等）、命令替换和变量展开。
+        当检测到管线符 | 时，解析管线各段并校验是否安全：
+        - 每段的首个命令必须在白名单中
+        - 管线末端的消费者必须在 safe_pipe_consumers 中
+        返回管线段列表（不包含 | 符号）；非管线命令返回 None。
+        """
         for token in argv:
-            if token in self.shell_operators or "$" in token or "`" in token:
+            if token in self._dangerous_operators:
+                raise ToolCommandError(f"不允许 shell 操作符: {token}")
+            if "$" in token or "`" in token:
                 raise ToolCommandError(
                     "不允许 shell 管道、重定向、后台执行、命令替换或变量展开"
                 )
@@ -188,6 +223,57 @@ class TerminalCommandPolicy:
                 and token.split("=", 1)[0].isidentifier()
             ):
                 raise ToolCommandError("不允许环境变量赋值")
+
+        if "|" not in argv:
+            return None
+
+        return self._parse_pipeline(argv)
+
+    def _parse_pipeline(self, argv: list[str]) -> list[list[str]]:
+        segments: list[list[str]] = []
+        current: list[str] = []
+        for token in argv:
+            if token == "|":
+                if not current:
+                    raise ToolCommandError("管线语法错误: | 前缺少命令")
+                segments.append(current)
+                current = []
+            else:
+                current.append(token)
+        if not current:
+            raise ToolCommandError("管线语法错误: | 后缺少命令")
+        segments.append(current)
+
+        for segment in segments:
+            program = Path(segment[0]).name
+            if not COMMAND_NAME_PATTERN.fullmatch(program):
+                raise ToolCommandError(f"管线中的命令名非法: {program}")
+            if program in self.blacklist:
+                raise ToolCommandError(f"管线中的命令在黑名单内: {program}")
+            if program not in self.whitelist:
+                raise ToolCommandError(f"管线中的命令不在白名单内: {program}")
+            # 每个段单独校验危险结构（不含 | 的递归校验）
+            for token in segment:
+                if token in self._dangerous_operators:
+                    raise ToolCommandError(f"管线片段不允许 shell 操作符: {token}")
+                if "$" in token or "`" in token:
+                    raise ToolCommandError("管线片段不允许命令替换或变量展开")
+                if (
+                    "=" in token
+                    and not token.startswith("-")
+                    and token.split("=", 1)[0].isidentifier()
+                ):
+                    raise ToolCommandError("管线片段不允许环境变量赋值")
+
+        # 最后一个段的程序必须是安全管线消费者
+        last_program = Path(segments[-1][0]).name
+        if last_program not in self.safe_pipe_consumers:
+            raise ToolCommandError(
+                f"管线末端命令必须是只读消费者，当前为: {last_program}。"
+                f"允许的消费者: {', '.join(sorted(self.safe_pipe_consumers))}"
+            )
+
+        return segments
 
 
 class ControlledTerminalRunner:
@@ -221,7 +307,7 @@ class ControlledTerminalRunner:
         return self.policy.examples()
 
     def parse_planner_reply(self, reply: str) -> dict:
-        text = strip_code_fence(reply.strip())
+        text = strip_outer_code_fence(reply.strip())
         if not text:
             raise ToolCommandError("工具规划器未返回内容")
         if text.lower().startswith("final:"):
@@ -238,7 +324,13 @@ class ControlledTerminalRunner:
             if self.policy.looks_like_shell_command(command_text):
                 raise
             return {"action": "final", "answer": text, "explicit_final": False}
-        return {"action": "command", "command": command.command, "argv": command.argv}
+        return {
+            "action": "command",
+            "command": command.command,
+            "argv": command.argv,
+            "is_pipeline": command.is_pipeline,
+            "pipeline_segments": command.pipeline_segments,
+        }
 
     def validate_action(self, data: dict) -> dict:
         return self.policy.validate_action(data)
@@ -253,7 +345,12 @@ class ControlledTerminalRunner:
         command = (
             action
             if isinstance(action, TerminalCommand)
-            else TerminalCommand(action["command"], action["argv"])
+            else TerminalCommand(
+                action["command"],
+                action["argv"],
+                is_pipeline=action.get("is_pipeline", False),
+                pipeline_segments=action.get("pipeline_segments"),
+            )
         )
         try:
             if command.argv[0] == "cd":
@@ -262,6 +359,8 @@ class ControlledTerminalRunner:
                 return self._execute_file_builtin(command)
             if command.argv[0] == "checkpoint":
                 return self._execute_checkpoint_builtin(command)
+            if command.is_pipeline:
+                return self._execute_pipeline(command)
             return self._execute_subprocess(command)
         except (
             ToolCommandError,
@@ -317,6 +416,72 @@ class ControlledTerminalRunner:
             "stdout": result.stdout,
             "stderr": result.stderr,
             "returncode": result.returncode,
+        }
+
+    def _execute_pipeline(self, command: TerminalCommand) -> dict:
+        """通过 subprocess.Popen 链式执行管线命令，不使用 shell=True。"""
+        segments = command.pipeline_segments
+        if not segments:
+            raise ToolCommandError("管线命令缺少分段信息")
+
+        processes: list[subprocess.Popen] = []
+        prev_stdout = None
+
+        for i, segment in enumerate(segments):
+            kwargs: dict = {
+                "args": segment,
+                "cwd": str(self.cwd),
+                "text": True,
+            }
+            is_last = i == len(segments) - 1
+            if is_last:
+                kwargs["stdout"] = subprocess.PIPE
+                kwargs["stderr"] = subprocess.PIPE
+            else:
+                kwargs["stdout"] = subprocess.PIPE
+                kwargs["stderr"] = subprocess.PIPE
+
+            if prev_stdout is not None:
+                kwargs["stdin"] = prev_stdout
+
+            try:
+                proc = subprocess.Popen(**kwargs)
+            except (FileNotFoundError, OSError) as exc:
+                # 清理已启动的进程
+                for p in processes:
+                    try:
+                        p.kill()
+                    except Exception:
+                        pass
+                raise ToolCommandError(str(exc)) from exc
+
+            processes.append(proc)
+            if prev_stdout is not None:
+                prev_stdout.close()
+            prev_stdout = proc.stdout
+
+        try:
+            stdout, stderr = processes[-1].communicate(
+                timeout=self.config.subprocess_timeout_seconds
+            )
+        except subprocess.TimeoutExpired:
+            for proc in processes:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            raise ToolCommandError(
+                f"管线命令执行超时 ({self.config.subprocess_timeout_seconds}s): {command.command}"
+            )
+
+        returncode = processes[-1].returncode or 0
+        return {
+            "command": command.command,
+            "ok": returncode == 0,
+            "cwd": self._relative_cwd(),
+            "stdout": stdout or "",
+            "stderr": stderr or "",
+            "returncode": returncode,
         }
 
     def prepare_file_replace(self, command: str, content: str) -> dict:

@@ -54,7 +54,6 @@ def main():
     app_config = load_config(args.config)
 
     workspace_root = Path(args.workspace_root).expanduser().resolve()
-    memory_path = workspace_root / ".cheapclaw" / "memory" / "memory.json"
     agent_config = app_config.agent
     browser_config = app_config.browser
     headless = browser_config.headless if args.headed is None else not args.headed
@@ -70,8 +69,11 @@ def main():
     model_name = getattr(client, "DISPLAY_NAME", args.model)
 
     # 2. 再初始化记忆系统（需要 client.send_text 做自动压缩摘要）
+    key_info_path = workspace_root / ".cheapclaw" / "key_info.yaml"
+    session_dir = workspace_root / ".cheapclaw" / "memory"
     memory = Memory(
-        persist_path=memory_path,
+        key_info_path=key_info_path,
+        session_dir=session_dir,
         llm_call=client.send_text,
         config=app_config.memory,
     )

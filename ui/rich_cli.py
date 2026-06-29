@@ -12,11 +12,9 @@ from rich.text import Text
 
 from agent_core import Agent
 from ui.command_handler import CLICommandHandler
-from utils.text_helpers import (
-    parse_structured_response,
-    remove_line_numbers_keep_markdown,
-    restore_rendered_code_blocks,
-)
+from utils.text.markdown import strip_leading_line_numbers
+from utils.text.rendered_code_blocks import restore_rendered_code_blocks
+from utils.text.structured_response import parse_structured_response
 
 
 @dataclass(frozen=True)
@@ -69,7 +67,7 @@ class TurnProgress:
 
 class RichCLI:
     HISTORY_FILE = ".cheapclaw/.cli_history"
-    HELP_TEXT = "[dim]↑↓ 历史记录 | /help 帮助 | /clear 清屏 | /compress 压缩记忆 | /memory 记忆状态 | /exit 退出[/dim]"
+    HELP_TEXT = "[dim]↑↓ 历史记录 | /help 帮助 | /clear 清屏 | /compress 压缩记忆 | /memory 记忆状态 | /keyinfo 关键信息 | /exit 退出[/dim]"
     CODE_BLOCK_PATTERN = r"(?s)```(\w+)?\n(.*?)```"
     STRUCTURED_MARKDOWN_PATTERN = (
         r"(?m)^(#{1,6}\s+|\s*[-*+]\s+|\s*\d+[.)]\s+|>\s+|\|.*\|\s*$)"
@@ -256,7 +254,7 @@ class RichCLI:
         ):
             return
 
-        cleaned = remove_line_numbers_keep_markdown(restored)
+        cleaned = strip_leading_line_numbers(restored)
         last_end = 0
 
         for match in re.finditer(self.CODE_BLOCK_PATTERN, cleaned):

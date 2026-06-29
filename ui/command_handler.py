@@ -26,7 +26,55 @@ class CLICommandHandler:
         if command == "/help":
             self.console.print(self.help_text)
             return "handled"
+        if command.startswith(("/keyinfo", "/ki")):
+            self._handle_keyinfo_command(user_input)
+            return "handled"
         return "unhandled"
+
+    def _handle_keyinfo_command(self, user_input: str) -> None:
+        """处理 /keyinfo 命令：显示、设置、删除、查看关键信息。"""
+        parts = user_input.split(maxsplit=3)
+        if len(parts) == 1:
+            self._show_keyinfo()
+            return
+
+        subcommand = parts[1].lower() if len(parts) >= 2 else ""
+        if subcommand == "set" and len(parts) >= 4:
+            key, value = parts[2], parts[3]
+            self.agent.memory.set_key_info(key, value)
+            self.agent.memory._save_key_info()
+            self.console.print(f"[green]已设置 {key} = {value}[/green]")
+        elif subcommand == "del" and len(parts) >= 3:
+            key = parts[2]
+            if self.agent.memory.key_info.get(key) is not None:
+                del self.agent.memory.key_info._infos[key]
+                self.agent.memory._save_key_info()
+                self.console.print(f"[green]已删除 {key}[/green]")
+            else:
+                self.console.print(f"[yellow]{key} 不存在[/yellow]")
+        elif subcommand == "get" and len(parts) >= 3:
+            key = parts[2]
+            value = self.agent.memory.get_key_info(key)
+            if value is not None:
+                self.console.print(f"{key}: {value}")
+            else:
+                self.console.print(f"[yellow]{key} 不存在[/yellow]")
+        else:
+            self.console.print(
+                "[yellow]用法: /keyinfo | /keyinfo set <key> <value> | /keyinfo del <key> | /keyinfo get <key>[/yellow]"
+            )
+
+    def _show_keyinfo(self) -> None:
+        infos = self.agent.memory.key_info.to_dict()
+        if not infos:
+            self.console.print(
+                "[dim]暂无关键信息。使用 /keyinfo set <key> <value> 添加。[/dim]"
+            )
+            return
+        lines = [f"  {k}: {v}" for k, v in infos.items()]
+        self.console.print(
+            Panel("\n".join(lines), title="关键信息", border_style="cyan")
+        )
 
     def _handle_memory_command(self, user_input: str) -> None:
         parts = user_input.split(maxsplit=2)

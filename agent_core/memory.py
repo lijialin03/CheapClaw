@@ -8,9 +8,25 @@ from pathlib import Path
 from typing import Callable, Optional
 
 import jieba
+import yaml
 
 from .config import MemoryConfig
 from .prompt_loader import render_prompt
+
+
+def _format_timestamp(ts: float) -> str:
+    """将 Unix 时间戳转为 ISO 格式字符串。"""
+    from datetime import datetime, timezone
+
+    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def _format_time(ts: float) -> str:
+    """将 Unix 时间戳转为 HH:MM:SS 格式。"""
+    from datetime import datetime, timezone
+
+    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%H:%M:%S")
+
 
 # ---------------------------------------------------------------------------
 # Token 估算（不依赖外部 tokenizer）
@@ -246,7 +262,8 @@ class Memory:
 
     def __init__(
         self,
-        persist_path: Optional[str] = None,
+        key_info_path: Optional[str] = None,
+        session_dir: Optional[str] = None,
         llm_call: Optional[Callable[[str], str]] = None,
         buffer_max_tokens: int | None = None,
         max_summaries: int | None = None,
@@ -260,7 +277,11 @@ class Memory:
             max_summaries=max_summaries or self.config.max_summaries
         )
         self.key_info = KeyInfoStore()
-        self.persist_path = Path(persist_path) if persist_path else None
+        self.key_info_path = Path(key_info_path) if key_info_path else None
+        self.session_dir = Path(session_dir) if session_dir else None
+        self._sessions_filepath = (
+            self.session_dir / "sessions.json" if self.session_dir else None
+        )
         self.session_id = f"session-{int(time.time())}-{uuid.uuid4().hex[:8]}"
         self.last_session: dict = {}
         self.session_history: list[dict] = []
@@ -269,7 +290,7 @@ class Memory:
         self.last_events: list[dict] = []
         self._event_callback: Optional[Callable[[dict], None]] = None
 
-        if self.persist_path and self.persist_path.exists():
+        if self.key_info_path or self._sessions_filepath:
             self.load()
 
     # ---- 公开 API ---------------------------------------------------------
@@ -355,7 +376,8 @@ class Memory:
             "path": str(session_file) if session_file else "",
         }
         self.session_history.append(dict(self.last_session))
-        self.save()
+        self._save_key_info()
+        self._save_session_index()
         self._record_event(
             {
                 "type": "session_closed",
@@ -370,12 +392,11 @@ class Memory:
     def clear_session(self) -> dict:
         count = self.buffer.message_count()
         self.buffer.messages.clear()
-        self.save()
         return {"cleared": count, "remaining": 0}
 
     def stats(self) -> dict:
         return {
-            "path": str(self.persist_path) if self.persist_path else "",
+            "path": str(self.key_info_path) if self.key_info_path else "",
             "session_messages": self.buffer.message_count(),
             "session_tokens": self.buffer.total_tokens(),
             "summary_count": len(self.compressor.summaries),
@@ -667,64 +688,86 @@ class Memory:
 
     # ---- 持久化 ---------------------------------------------------------
 
-    def save(self):
-        if not self.persist_path:
-            return
-        data = {
-            "current_session_id": self.session_id,
-            "key_info": self.key_info.to_dict(),
-            "last_session": self.last_session,
-            "sessions": self.session_history,
-        }
-        self.persist_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.persist_path, "w", encoding="utf-8") as file:
-            json.dump(data, file, ensure_ascii=False, indent=2)
-
     def load(self):
-        if not self.persist_path or not self.persist_path.exists():
-            return
-        with open(self.persist_path, "r", encoding="utf-8") as file:
-            data = json.load(file)
-        self.buffer.messages.clear()
-        self.compressor.summaries.clear()
-        self.key_info.from_dict(data.get("key_info", {}))
-        self.last_session = data.get("last_session", {})
-        self.session_history = list(data.get("sessions", []))
-        legacy_summaries = data.get("summaries", [])
-        if legacy_summaries:
-            self._migrate_legacy_summaries(legacy_summaries)
+        """从 key_info.yaml 加载关键信息，从 sessions.json 加载会话索引。"""
+        if self.key_info_path and self.key_info_path.exists():
+            with open(self.key_info_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            self.key_info.from_dict(data)
 
-    def _migrate_legacy_summaries(self, summaries: list[dict]) -> None:
-        if not self.persist_path:
+        if self._sessions_filepath and self._sessions_filepath.exists():
+            with open(self._sessions_filepath, "r", encoding="utf-8") as f:
+                index = json.load(f)
+            self.session_history = index.get("sessions", [])
+            self.last_session = index.get("last_session", {})
+
+    def _save_key_info(self):
+        """将关键信息保存到 key_info.yaml。"""
+        if not self.key_info_path:
             return
-        legacy_session_id = f"session-legacy-{int(time.time())}"
-        last_session = dict(self.last_session or {})
-        closed_at = last_session.get("closed_at", time.time())
-        session_path = self.persist_path.with_name(f"memory-{legacy_session_id}.json")
-        data = {
-            "id": legacy_session_id,
-            "closed_at": closed_at,
-            "message_count": last_session.get("message_count", 0),
-            "compressed": last_session.get("compressed", True),
-            "summary_count": len(summaries),
-            "messages": [],
-            "summaries": summaries,
-            "key_info": self.key_info.to_dict(),
-            "legacy": True,
-        }
-        with open(session_path, "w", encoding="utf-8") as file:
-            json.dump(data, file, ensure_ascii=False, indent=2)
-        self.last_session = {
-            "id": legacy_session_id,
-            "closed_at": closed_at,
-            "message_count": data["message_count"],
-            "compressed": data["compressed"],
-            "summary_count": len(summaries),
-            "path": str(session_path),
-            "legacy": True,
-        }
-        self.session_history.append(dict(self.last_session))
-        self.save()
+        self.key_info_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.key_info_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(
+                self.key_info.to_dict(), f, allow_unicode=True, default_flow_style=False
+            )
+
+    def _save_session_index(self):
+        """将会话索引保存到 sessions.json。"""
+        if not self._sessions_filepath:
+            return
+        self._sessions_filepath.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._sessions_filepath, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "last_session": self.last_session,
+                    "sessions": self.session_history,
+                },
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+
+    def _render_session_markdown(
+        self,
+        closed_at: float,
+        messages: list[dict],
+        summaries: list[dict],
+        compressed: bool,
+    ) -> str:
+        """将会话内容渲染为人类可读的 Markdown。"""
+        lines = [
+            f"# Session: {self.session_id}",
+            f"**Closed at:** {_format_timestamp(closed_at)}",
+            f"**Messages:** {len(messages)} | **Compressed:** {'yes' if compressed else 'no'} | **Summaries:** {len(summaries)}",
+            "",
+            "## Conversation",
+            "",
+        ]
+
+        for msg in messages:
+            role = "User" if msg.get("role") == "user" else "Assistant"
+            ts = msg.get("timestamp", 0)
+            time_str = _format_time(ts) if ts else "--:--:--"
+            lines.append(f"**{role} ({time_str}):**")
+            lines.append(msg.get("content", ""))
+            lines.append("")
+
+        if summaries:
+            lines.append("## Summaries")
+            lines.append("")
+            for i, s in enumerate(summaries, 1):
+                lines.append(f"{i}. {s.get('content', '')}")
+            lines.append("")
+
+        key_info_dict = self.key_info.to_dict()
+        if key_info_dict:
+            lines.append("## Key Info")
+            lines.append("")
+            for k, v in key_info_dict.items():
+                lines.append(f"- {k}: {v}")
+            lines.append("")
+
+        return "\n".join(lines)
 
     def _save_session_archive(
         self,
@@ -733,20 +776,14 @@ class Memory:
         summaries: list[dict],
         compressed: bool,
     ) -> Path | None:
-        if not self.persist_path:
+        """生成人类可读的 Markdown 会话归档。"""
+        if not self.session_dir:
             return None
-        session_path = self.persist_path.with_name(f"memory-{self.session_id}.json")
-        data = {
-            "id": self.session_id,
-            "closed_at": closed_at,
-            "message_count": len(messages),
-            "compressed": compressed,
-            "summary_count": len(summaries),
-            "messages": messages,
-            "summaries": summaries,
-            "key_info": self.key_info.to_dict(),
-        }
+        md_content = self._render_session_markdown(
+            closed_at, messages, summaries, compressed
+        )
+        session_path = self.session_dir / f"memory-{self.session_id}.md"
         session_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(session_path, "w", encoding="utf-8") as file:
-            json.dump(data, file, ensure_ascii=False, indent=2)
+        with open(session_path, "w", encoding="utf-8") as f:
+            f.write(md_content)
         return session_path

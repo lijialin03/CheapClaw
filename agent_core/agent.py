@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from model_clients.protocols import AgentClient
-from utils.text_helpers import markdown_to_plain
+from utils.text.markdown import convert_markdown_to_plain_text
 
 from .config import AgentConfig
 from .file_transport import PromptTransport
@@ -147,7 +147,6 @@ class Agent:
                 "message": "压缩未生成摘要，已保留原始工作记忆",
                 "message_count": len(self.memory.buffer.messages),
             }
-        self.memory.save()
         return {
             "status": "completed",
             "summaries": len(self.memory.compressor.summaries),
@@ -214,11 +213,10 @@ class Agent:
         assistant_reply: str,
         event_callback: Optional[Callable[[dict], None]] = None,
     ) -> None:
-        clean_text = markdown_to_plain(assistant_reply)
+        clean_text = convert_markdown_to_plain_text(assistant_reply)
         self.memory.set_event_callback(event_callback)
         try:
             self.memory.add_user_message(user_input)
             self.memory.add_assistant_message(clean_text)
-            self.memory.save()
         finally:
             self.memory.set_event_callback(None)
