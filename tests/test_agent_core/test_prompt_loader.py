@@ -73,3 +73,34 @@ def test_prompt_template_placeholders_match_expected_contract(
     template = load_prompt_template(name)
 
     assert set(PLACEHOLDER_PATTERN.findall(template)) == expected_placeholders
+
+
+def test_tool_router_prompt_classifies_local_file_capabilities_as_terminal():
+    template = load_prompt_template("tool_router.md")
+
+    assert "本地工具" in template
+    assert "你可以读取我的本地文件" in template
+    assert "当前仓库" in template
+    assert "请直接修改 index.html 文件" in template
+    assert "terminal" in template
+    assert "解释一下 flex 布局" in template
+    assert "chat" in template
+
+
+def test_tool_planner_prompt_requires_current_read_before_file_replace():
+    template = load_prompt_template("tool_planner.md")
+
+    assert "当前工具编排" in template
+    assert "用 cat 读取目标文件" in template
+    assert "不要直接 file replace" in template
+    assert "不能继承历史文件内容" in template
+    assert "file replace <path>" in template
+
+
+def test_chat_prompt_does_not_deny_local_file_capability():
+    template = load_prompt_template("chat.md")
+
+    assert "受控本地工具" in template
+    assert "用户授权和提供路径后处理" in template
+    assert "提供路径" in template
+    assert "无法访问本地文件" not in template

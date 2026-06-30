@@ -7,6 +7,71 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "default_config.json"
 DEFAULT_WORKSPACE_CONFIG_PATH = Path.cwd() / "config" / "default_config.json"
 
+WORKSPACE_READ_VERBS = (
+    "读取",
+    "读",
+    "查看",
+    "检查",
+    "列出",
+    "看看",
+    "打开",
+    "分析",
+    "总结",
+    "修改",
+    "改",
+    "写入",
+    "替换",
+    "创建",
+    "保存",
+    "应用",
+    "review",
+    "analyze",
+    "read",
+    "show",
+    "list",
+    "stat",
+    "edit",
+    "modify",
+    "write",
+    "replace",
+    "update",
+    "create",
+    "save",
+    "apply",
+)
+
+WORKSPACE_TARGETS = (
+    "目录",
+    "文件",
+    "路径",
+    "当前目录",
+    "本地文件",
+    "本地目录",
+    "workspace",
+    "run.py",
+    "index.html",
+    "package.json",
+    ".py",
+    ".json",
+    ".md",
+    ".txt",
+    ".html",
+    ".css",
+    ".js",
+    ".ts",
+    ".tsx",
+    ".vue",
+    ".yaml",
+    ".yml",
+    "/",
+    "./",
+    "../",
+    "agent_core",
+    "ui",
+    "model_clients",
+    "config",
+)
+
 
 class ToolConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -50,41 +115,8 @@ class ToolConfig(BaseModel):
         "tools",
         "yes",
     )
-    workspace_read_verbs: tuple[str, ...] = (
-        "读取",
-        "读",
-        "查看",
-        "检查",
-        "列出",
-        "看看",
-        "打开",
-        "分析",
-        "总结",
-        "review",
-        "analyze",
-        "read",
-        "show",
-        "list",
-        "stat",
-    )
-    workspace_targets: tuple[str, ...] = (
-        "目录",
-        "文件",
-        "路径",
-        "当前目录",
-        "workspace",
-        "run.py",
-        ".py",
-        ".json",
-        ".md",
-        ".txt",
-        "/",
-        "./",
-        "agent_core",
-        "ui",
-        "model_clients",
-        "config",
-    )
+    workspace_read_verbs: tuple[str, ...] = WORKSPACE_READ_VERBS
+    workspace_targets: tuple[str, ...] = WORKSPACE_TARGETS
     tool_step_limit_message: str = "已达到终端命令调用步数上限，无法继续读取更多信息。"
     file_edit_diff_preview_chars: int = Field(default=3000, gt=0)
 

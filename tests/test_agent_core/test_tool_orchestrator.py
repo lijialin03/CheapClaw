@@ -149,6 +149,34 @@ def test_router_fallback_on_errors_and_unknown_text():
     )
 
 
+@pytest.mark.parametrize(
+    "user_input",
+    [
+        "你可以读取我的本地文件",
+        "请直接修改 index.html 文件",
+        "把它写入 /home/ssd2/test/pweb/index.html",
+        "update package.json",
+    ],
+)
+def test_router_fallback_covers_local_file_and_edit_requests(user_input):
+    assert make_orchestrator(QueueClient(["maybe"])).should_use_terminal_tools(
+        user_input
+    )
+
+
+@pytest.mark.parametrize(
+    "user_input",
+    [
+        "你可以读取我的本地文件",
+        "请直接修改 /home/ssd2/test/pweb/index.html 文件",
+    ],
+)
+def test_router_keeps_web_model_negative_reply_authoritative(user_input):
+    assert not make_orchestrator(QueueClient(["chat"])).should_use_terminal_tools(
+        user_input
+    )
+
+
 def test_command_execution_loop_followed_by_final_answer():
     events = []
     runner = FakeRunner()

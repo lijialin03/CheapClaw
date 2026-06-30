@@ -92,3 +92,13 @@ def test_load_config_applies_overrides_from_file(tmp_path):
 
 def test_load_config_nonexistent_path_falls_back_to_defaults(tmp_path):
     assert load_config(tmp_path / "missing.json") == AppConfig()
+
+
+def test_default_config_file_contains_high_confidence_workspace_fallback_terms():
+    config = load_config()
+
+    assert "写入" in config.agent.tools.workspace_read_verbs
+    assert "replace" in config.agent.tools.workspace_read_verbs
+    assert "index.html" in config.agent.tools.workspace_targets
+    assert ".html" in config.agent.tools.workspace_targets
+    assert "当前仓库" not in config.agent.tools.workspace_read_verbs
