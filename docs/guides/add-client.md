@@ -31,16 +31,16 @@ CheapClaw 通过 Playwright 自动化网页操作来使用模型（而非 API）
 新增模型需要改动以下文件：
 
 ```text
-model_clients/xxx/              # 新包：client.py + selectors.yaml + scripts/*.js
-model_clients/__init__.py       # 导出 XxxClient
+cheapclaw/model_clients/xxx/              # 新包：client.py + selectors.yaml + scripts/*.js
+cheapclaw/model_clients/__init__.py       # 导出 XxxClient
 run.py                          # 注册 --model xxx
-scripts/export_state.py         # 可选：注册登录态导出
+cheapclaw/scripts/export_state.py         # 可选：注册登录态导出
 tests/test_xxx_client.py        # 建议：单元测试
 ```
 
 ## 3. 选择器配置 (selectors.yaml)
 
-选择器已从代码中外部化到 YAML 文件，基类通过 `SelectorConfig` 模型加载。创建 `model_clients/xxx/selectors.yaml`：
+选择器已从代码中外部化到 YAML 文件，基类通过 `SelectorConfig` 模型加载。创建 `cheapclaw/model_clients/xxx/selectors.yaml`：
 
 ```yaml
 # 核心交互
@@ -62,13 +62,13 @@ login_url_keywords:
   - /signin
 ```
 
-完整字段列表见 `model_clients/selector_config.py` 中的 `SelectorConfig` 模型。必填字段：`composer`、`send_button`、`reply_content`。其余字段按站点需要可选填入。
+完整字段列表见 `cheapclaw/model_clients/selector_config.py` 中的 `SelectorConfig` 模型。必填字段：`composer`、`send_button`、`reply_content`。其余字段按站点需要可选填入。
 
 在 `pyproject.toml` 中声明 package data 以包含 YAML：
 
 ```toml
 [tool.setuptools.package-data]
-"model_clients.xxx" = ["scripts/*.js", "selectors.yaml"]
+"cheapclaw.model_clients.xxx" = ["scripts/*.js", "selectors.yaml"]
 ```
 
 ## 4. 最小实现
@@ -76,7 +76,7 @@ login_url_keywords:
 ### 4.1 创建包结构
 
 ```text
-model_clients/xxx/
+cheapclaw/model_clients/xxx/
 ├── __init__.py                  # from .client import XxxClient
 ├── selectors.yaml               # CSS 选择器配置
 ├── client.py                    # XxxAdapter + XxxClient
@@ -94,7 +94,7 @@ model_clients/xxx/
 ```python
 from pathlib import Path
 
-from agent_core.config import BrowserConfig
+from cheapclaw.agent_core.config import BrowserConfig
 
 from ..browser_base import BrowserFrontendAdapter, BrowserModelClient
 from ..selector_config import SelectorConfig, load_selector_config
@@ -188,7 +188,7 @@ class XxxClient(BrowserModelClient):
 
 ### 4.3 JS 脚本
 
-基类通过配置的 JS 脚本名自动加载 `model_clients/xxx/scripts/<name>.js`。**JS 脚本已参数化，接收 `selectors` 对象作为参数。**
+基类通过配置的 JS 脚本名自动加载 `cheapclaw/model_clients/xxx/scripts/<name>.js`。**JS 脚本已参数化，接收 `selectors` 对象作为参数。**
 
 | 脚本文件 | 返回值 | 函数签名 | 说明 |
 | --- | --- | --- | --- |
@@ -240,13 +240,13 @@ Python 端调用时基类自动传入 `self._selector_args()`，其中包含 `se
 
 ## 5. 注册
 
-在 `model_clients/__init__.py`：
+在 `cheapclaw/model_clients/__init__.py`：
 
 ```python
 from .xxx import XxxClient
 ```
 
-在 `run.py` 的 `MODEL_CLIENTS`：
+在 `cheapclaw/cli.py` 的 `MODEL_CLIENTS`：
 
 ```python
 MODEL_CLIENTS = {
@@ -259,12 +259,12 @@ MODEL_CLIENTS = {
 使用：
 
 ```bash
-python run.py --model xxx
+python -m cheapclaw --model xxx
 ```
 
 ## 6. 登录态导出（可选）
 
-在 `scripts/export_state.py` 的 `EXPORT_MODELS` 中增加一个 `ExportSpec`：
+在 `cheapclaw/scripts/export_state.py` 的 `EXPORT_MODELS` 中增加一个 `ExportSpec`：
 
 ```python
 "xxx": ExportSpec(
@@ -314,7 +314,7 @@ python run.py --model xxx
 
 ## 8. 错误处理
 
-基类已内置异常层次（`model_clients/exceptions.py`）：
+基类已内置异常层次（`cheapclaw/model_clients/exceptions.py`）：
 
 | 异常 | 触发时机 | 处理 |
 | --- | --- | --- |

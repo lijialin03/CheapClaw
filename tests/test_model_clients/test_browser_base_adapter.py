@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from model_clients.browser_base import BrowserFrontendAdapter
+from cheapclaw.model_clients.browser_base import BrowserFrontendAdapter
 from tests.mocks import (
     DummyConfig,
     DummyLogger,

@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from utils.text.generic import first_nonempty_line, truncate_text_fields
-from utils.text.markdown import strip_outer_code_fence
+from cheapclaw.utils.text.generic import first_nonempty_line, truncate_text_fields
+from cheapclaw.utils.text.markdown import strip_outer_code_fence
 
 from .config import ToolConfig
 from .workspace import Workspace, WorkspaceError
@@ -74,11 +74,11 @@ class TerminalCommandPolicy:
     def examples(self) -> list[str]:
         examples = ["ls"]
         if "ls" in self.whitelist:
-            examples.append("ls agent_core")
+            examples.append("ls cheapclaw")
         if "cd" in self.whitelist:
-            examples.extend(["cd agent_core", "cd .."])
+            examples.extend(["cd cheapclaw", "cd .."])
         if "cat" in self.whitelist:
-            examples.append("cat agent_core/agent.py")
+            examples.append("cat cheapclaw/agent_core/agent.py")
         examples.extend(
             [
                 "file replace debug/test.py",
@@ -86,9 +86,7 @@ class TerminalCommandPolicy:
                 "checkpoint restore ckpt-example",
             ]
         )
-        examples.append(
-            "final: 当前目录包含 run.py、agent_core、model_clients、ui 等。"
-        )
+        examples.append("final: 当前目录包含 run.py、cheapclaw、tests、docs 等。")
         return examples
 
     def validate_action(self, data: dict) -> dict:

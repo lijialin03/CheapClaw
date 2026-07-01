@@ -1,6 +1,6 @@
 import pytest
 
-from agent_core.workspace import Workspace, WorkspaceError
+from cheapclaw.agent_core.workspace import Workspace, WorkspaceError
 
 
 def test_relative_path_inside_workspace_resolves_successfully(tmp_path):

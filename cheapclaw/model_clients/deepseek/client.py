@@ -1,7 +1,7 @@
 import re
 from pathlib import Path
 
-from agent_core.config import BrowserConfig
+from cheapclaw.agent_core.config import BrowserConfig
 
 from ..browser_base import BrowserFrontendAdapter, BrowserModelClient
 from ..selector_config import SelectorConfig, load_selector_config
@@ -77,7 +77,7 @@ class DeepSeekAdapter(BrowserFrontendAdapter):
 
     def login_state_guidance(self, storage_state_path: str) -> str:
         return (
-            "有图形界面时，在项目根目录运行 `python scripts/export_state.py --model deepseek`，"
+            "有图形界面时，在项目根目录运行 `python -m cheapclaw.scripts.export_state --model deepseek`，"
             "按浏览器提示完成 DeepSeek 登录，脚本会导出 storage_state_ds.json。"
             "如果当前机器没有图形界面，请在本地电脑运行同一脚本，"
             f"再把生成的 storage_state_ds.json 上传到开发机的 {storage_state_path}。"

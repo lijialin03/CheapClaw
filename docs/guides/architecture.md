@@ -5,13 +5,13 @@
 项目按职责分为 4 个核心层：
 
 ```
-agent_core/        ← 编排层：Agent 调度、Memory 记忆、ToolOrchestrator 工具编排
-model_clients/     ← 模型接入层：网页模型客户端、浏览器自动化、站点适配器
-ui/                ← 界面层：终端交互 UI
-utils/             ← 工具层：日志、文本处理
+cheapclaw/agent_core/        ← 编排层：Agent 调度、Memory 记忆、ToolOrchestrator 工具编排
+cheapclaw/model_clients/     ← 模型接入层：网页模型客户端、浏览器自动化、站点适配器
+cheapclaw/ui/                ← 界面层：终端交互 UI
+cheapclaw/utils/             ← 工具层：日志、文本处理
 ```
 
-每个网页模型（deepseek/qwen）在 `model_clients/` 下有独立子包，包含客户端实现、CSS 选择器 YAML 和 JS 页面脚本。配置系统基于 Pydantic Frozen 模型，从 `config/default_config.json` 加载，分为 Agent/Browser/Memory 三个配置段。
+每个网页模型（deepseek/qwen）在 `cheapclaw/model_clients/` 下有独立子包，包含客户端实现、CSS 选择器 YAML 和 JS 页面脚本。配置系统基于 Pydantic Frozen 模型，从 `config/default_config.json` 加载，分为 Agent/Browser/Memory 三个配置段。
 
 ## 启动流程
 
@@ -76,10 +76,10 @@ utils/             ← 工具层：日志、文本处理
 
 ### 模型客户端层
 
-- **AgentClient Protocol**（`model_clients/protocols.py`）：定义客户端必须实现的接口（`start/send_text/send_file/close/consume_notices`），Agent 只依赖此 Protocol。
-- **BrowserModelClient**（`model_clients/browser_base.py`）：基于 Playwright 的通用实现，封装浏览器生命周期和消息收发流程。子类只需注入对应的 Adapter。
+- **AgentClient Protocol**（`cheapclaw/model_clients/protocols.py`）：定义客户端必须实现的接口（`start/send_text/send_file/close/consume_notices`），Agent 只依赖此 Protocol。
+- **BrowserModelClient**（`cheapclaw/model_clients/browser_base.py`）：基于 Playwright 的通用实现，封装浏览器生命周期和消息收发流程。子类只需注入对应的 Adapter。
 - **BrowserFrontendAdapter**：抽象基类，定义站点差异接口。每个站点通过子类 + `selectors.yaml` 实现差异化逻辑，网站改版时只需修改 YAML。
-- **异常层次**（`model_clients/exceptions.py`）：`CheapClawError → BrowserError → LoginExpiredError / GenerationFailureError / NetworkError / SelectorNotFoundError`。
+- **异常层次**（`cheapclaw/model_clients/exceptions.py`）：`CheapClawError → BrowserError → LoginExpiredError / GenerationFailureError / NetworkError / SelectorNotFoundError`。
 
 ## 关键设计决策
 

@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from agent_core.config import (
+from cheapclaw.agent_core.config import (
     AgentConfig,
     AppConfig,
     BrowserConfig,
@@ -94,6 +94,36 @@ def test_load_config_nonexistent_path_falls_back_to_defaults(tmp_path):
     assert load_config(tmp_path / "missing.json") == AppConfig()
 
 
+def test_workspace_default_config_takes_precedence(monkeypatch, tmp_path):
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "default_config.json").write_text(
+        json.dumps({"agent": {"max_text_chars": 4321}}),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    config = load_config()
+
+    assert config.agent.max_text_chars == 4321
+
+
+def test_load_config_uses_package_default_when_workspace_config_missing(
+    monkeypatch, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+
+    config = load_config()
+
+    assert "写入" in config.agent.tools.workspace_read_verbs
+    assert "replace" in config.agent.tools.workspace_read_verbs
+    assert "index.html" in config.agent.tools.workspace_targets
+    assert ".html" in config.agent.tools.workspace_targets
+    assert "cheapclaw/agent_core" in config.agent.tools.workspace_targets
+    assert "agent_core" not in config.agent.tools.workspace_targets
+    assert "当前仓库" not in config.agent.tools.workspace_read_verbs
+
+
 def test_default_config_file_contains_high_confidence_workspace_fallback_terms():
     config = load_config()
 
@@ -101,4 +131,6 @@ def test_default_config_file_contains_high_confidence_workspace_fallback_terms()
     assert "replace" in config.agent.tools.workspace_read_verbs
     assert "index.html" in config.agent.tools.workspace_targets
     assert ".html" in config.agent.tools.workspace_targets
+    assert "cheapclaw/agent_core" in config.agent.tools.workspace_targets
+    assert "agent_core" not in config.agent.tools.workspace_targets
     assert "当前仓库" not in config.agent.tools.workspace_read_verbs

@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.agent import Agent
-from agent_core.config import AgentConfig, ToolConfig
+from cheapclaw.agent_core.agent import Agent
+from cheapclaw.agent_core.config import AgentConfig, ToolConfig
 
 
 class MinimalTextClient:

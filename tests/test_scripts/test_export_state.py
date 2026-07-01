@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-import scripts.export_state as export_state
+import cheapclaw.scripts.export_state as export_state
 
 
 class FakePage:

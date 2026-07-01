@@ -10,11 +10,11 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 
-from agent_core import Agent
-from ui.command_handler import CLICommandHandler
-from utils.text.markdown import strip_leading_line_numbers
-from utils.text.rendered_code_blocks import restore_rendered_code_blocks
-from utils.text.structured_response import parse_structured_response
+from cheapclaw.agent_core import Agent
+from cheapclaw.ui.command_handler import CLICommandHandler
+from cheapclaw.utils.text.markdown import strip_leading_line_numbers
+from cheapclaw.utils.text.rendered_code_blocks import restore_rendered_code_blocks
+from cheapclaw.utils.text.structured_response import parse_structured_response
 
 
 @dataclass(frozen=True)

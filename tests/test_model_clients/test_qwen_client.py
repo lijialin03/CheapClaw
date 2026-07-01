@@ -1,5 +1,5 @@
-from model_clients.qwen import QwenAdapter
-from model_clients.selector_config import load_selector_config
+from cheapclaw.model_clients.qwen import QwenAdapter
+from cheapclaw.model_clients.selector_config import load_selector_config
 from tests.mocks import DummyConfig, DummyLogger, FakePage, FakeSession
 
 QWEN_SELECTORS = load_selector_config("qwen")

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cheapclaw"
-version = "0.1.0"
+version = "0.3.0"
 description = "Terminal client for web model frontends powered by Playwright."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,26 +17,21 @@ dependencies = [
 ]
 
 [project.scripts]
-cheapclaw = "run:main"
-cheapclaw-export-state = "scripts.export_state:main"
+cheapclaw = "cheapclaw.cli:main"
+cheapclaw-export-state = "cheapclaw.scripts.export_state:main"
 
 [tool.setuptools]
-py-modules = ["run"]
-packages = [
-    "agent_core",
-    "model_clients",
-    "model_clients.qwen",
-    "model_clients.deepseek",
-    "ui",
-    "utils",
-    "scripts",
-]
 include-package-data = true
 
+[tool.setuptools.packages.find]
+include = ["cheapclaw*"]
+exclude = ["tests*", "build*", "debug*", "plans*", "config*"]
+
 [tool.setuptools.package-data]
-agent_core = ["prompts/*.md"]
-"model_clients.qwen" = ["scripts/*.js", "selectors.yaml"]
-"model_clients.deepseek" = ["scripts/*.js", "selectors.yaml"]
+"cheapclaw.agent_core" = ["prompts/*.md"]
+"cheapclaw.model_clients.qwen" = ["scripts/*.js", "selectors.yaml"]
+"cheapclaw.model_clients.deepseek" = ["scripts/*.js", "selectors.yaml"]
+"cheapclaw.config" = ["default_config.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

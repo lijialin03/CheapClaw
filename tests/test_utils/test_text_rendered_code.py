@@ -1,4 +1,4 @@
-from utils.text.rendered_code_blocks import restore_rendered_code_blocks
+from cheapclaw.utils.text.rendered_code_blocks import restore_rendered_code_blocks
 
 
 def test_restore_rendered_code_blocks_reconstructs_markdown_fence():

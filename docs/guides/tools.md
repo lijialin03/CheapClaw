@@ -16,7 +16,7 @@ ControlledTerminalRunner  ← 执行层：cwd 维护、子进程运行、checkpo
 
 ## TerminalCommandPolicy（策略层）
 
-实现于 `agent_core/tool_commands.py`。
+实现于 `cheapclaw/agent_core/tool_commands.py`。
 
 ### 安全模型
 
@@ -66,7 +66,7 @@ ControlledTerminalRunner  ← 执行层：cwd 维护、子进程运行、checkpo
 
 ## ControlledTerminalRunner（执行层）
 
-实现于 `agent_core/tool_commands.py`。
+实现于 `cheapclaw/agent_core/tool_commands.py`。
 
 ### cwd 管理
 
@@ -90,7 +90,7 @@ ControlledTerminalRunner  ← 执行层：cwd 维护、子进程运行、checkpo
 
 ## ToolOrchestrator（编排层）
 
-实现于 `agent_core/tool_orchestrator.py`。
+实现于 `cheapclaw/agent_core/tool_orchestrator.py`。
 
 ### 执行流程
 

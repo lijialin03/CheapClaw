@@ -2,7 +2,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from utils.text.generated_file import clean_generated_file_content
+from cheapclaw.utils.text.generated_file import clean_generated_file_content
 
 from .config import ToolConfig
 from .prompt_loader import render_prompt

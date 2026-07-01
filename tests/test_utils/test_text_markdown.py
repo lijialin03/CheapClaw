@@ -1,4 +1,4 @@
-from utils.text.markdown import convert_markdown_to_plain_text
+from cheapclaw.utils.text.markdown import convert_markdown_to_plain_text
 
 
 def test_convert_markdown_to_plain_text_removes_syntax_and_preserves_code_content():

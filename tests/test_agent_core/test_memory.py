@@ -1,7 +1,7 @@
 import json
 
-from agent_core.config import MemoryConfig
-from agent_core.memory import (
+from cheapclaw.agent_core.config import MemoryConfig
+from cheapclaw.agent_core.memory import (
     ConversationBuffer,
     KeyInfoStore,
     Memory,

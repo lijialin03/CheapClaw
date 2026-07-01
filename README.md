@@ -59,7 +59,7 @@ cheapclaw-export-state --model <model>
 未安装为 CLI 时，可直接运行源码脚本：
 
 ```bash
-python scripts/export_state.py --model <model>
+python -m cheapclaw.scripts.export_state --model <model>
 ```
 
 脚本会打开浏览器。你可以用目标网页支持的网页登录方式完成登录；成功后会导出对应模型的 `config/storage_state_<model>.json`，并使用 `config/login_profile_<model>` 作为临时浏览器 profile（模型实现可使用兼容命名）。
@@ -74,7 +74,13 @@ python scripts/export_state.py --model <model>
 cheapclaw
 ```
 
-源码方式：
+源码方式推荐：
+
+```bash
+python -m cheapclaw
+```
+
+也可使用保留的便捷入口：
 
 ```bash
 python run.py
@@ -165,5 +171,14 @@ cheapclaw --cleanup-session          # 退出时清理本次创建的网页会�
 - 终端命令系统完善（扩展白名单、修复误拦截）；记忆系统升级（jieba 分词、更大上下文预算）。
 - 新增开发文档：架构概览、记忆系统、终端工具、新增 Client 指南。
 - 扩展单元测试覆盖，减少薅羊毛过程中翻车的概率。
+
+### 0.3.0
+
+- 迁移到 `cheapclaw/` 单一顶层包结构，正式入口改为 `cheapclaw.cli:main`，并保留 `python run.py` 作为源码便捷入口。
+- 重写会话记忆持久化流程，减少每轮对话写盘，并改进 session 归档、摘要压缩和关键信息检索。
+- 修复结构化 JSON 回复解析，增强对网页渲染代码块、控制字符和混合文本回复的兼容性。
+- 优化本地工具分路和文件修改触发逻辑：保持 Web 模型路由优先，同时让本地文件读取、写入和 `file replace` 工作流更稳定。
+- 拆分文本处理工具模块，移除旧 `text_helpers` 聚合入口，按 Markdown、生成文件清洗、结构化回复解析等职责组织代码。
+- 更新 demo 截图与文档说明，并继续补充单元测试覆盖。
 
 </details>

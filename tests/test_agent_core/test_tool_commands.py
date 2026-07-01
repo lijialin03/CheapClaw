@@ -2,13 +2,13 @@ import subprocess
 
 import pytest
 
-from agent_core.config import ToolConfig
-from agent_core.tool_commands import (
+from cheapclaw.agent_core.config import ToolConfig
+from cheapclaw.agent_core.tool_commands import (
     ControlledTerminalRunner,
     TerminalCommandPolicy,
     ToolCommandError,
 )
-from agent_core.workspace import Workspace
+from cheapclaw.agent_core.workspace import Workspace
 
 
 def test_terminal_command_policy_normalizes_command_paths_and_quoting():
@@ -206,7 +206,7 @@ def test_runner_subprocess_uses_safe_invocation(monkeypatch, tmp_path):
         )
         return subprocess.CompletedProcess(argv, 0, "out", "err")
 
-    monkeypatch.setattr("agent_core.tool_commands.subprocess.run", fake_run)
+    monkeypatch.setattr("cheapclaw.agent_core.tool_commands.subprocess.run", fake_run)
     runner = ControlledTerminalRunner(
         Workspace(tmp_path),
         config=ToolConfig(subprocess_timeout_seconds=7),
@@ -241,7 +241,9 @@ def test_runner_timeout_and_os_errors_become_observations(monkeypatch, tmp_path)
     def timeout_run(*args, **kwargs):
         raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
 
-    monkeypatch.setattr("agent_core.tool_commands.subprocess.run", timeout_run)
+    monkeypatch.setattr(
+        "cheapclaw.agent_core.tool_commands.subprocess.run", timeout_run
+    )
     timeout = runner.execute(
         {"command": "python slow.py", "argv": ["python", "slow.py"]}
     )
@@ -251,7 +253,9 @@ def test_runner_timeout_and_os_errors_become_observations(monkeypatch, tmp_path)
     def os_error_run(*args, **kwargs):
         raise OSError("boom")
 
-    monkeypatch.setattr("agent_core.tool_commands.subprocess.run", os_error_run)
+    monkeypatch.setattr(
+        "cheapclaw.agent_core.tool_commands.subprocess.run", os_error_run
+    )
     errored = runner.execute(
         {"command": "python fail.py", "argv": ["python", "fail.py"]}
     )

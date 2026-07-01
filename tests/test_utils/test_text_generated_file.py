@@ -1,4 +1,4 @@
-from utils.text.generated_file import clean_generated_file_content
+from cheapclaw.utils.text.generated_file import clean_generated_file_content
 
 
 def test_clean_generated_file_content_strips_fences_language_labels_and_line_numbers():

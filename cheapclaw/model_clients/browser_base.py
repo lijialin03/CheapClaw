@@ -8,14 +8,14 @@ from typing import Any
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-from agent_core.config import BrowserConfig
-from model_clients.exceptions import (
+from cheapclaw.agent_core.config import BrowserConfig
+from cheapclaw.model_clients.exceptions import (
     GenerationFailureError,
     LoginExpiredError,
     NetworkError,
 )
-from model_clients.selector_config import SelectorConfig
-from utils import get_logger
+from cheapclaw.model_clients.selector_config import SelectorConfig
+from cheapclaw.utils import get_logger
 
 
 class BrowserClientConfig(BrowserConfig):

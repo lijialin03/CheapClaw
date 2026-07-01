@@ -1,4 +1,4 @@
-from utils.text.structured_response import (
+from cheapclaw.utils.text.structured_response import (
     diagnose_structured_response,
     extract_json_response_text,
 )

@@ -1,11 +1,11 @@
 import json
+from importlib import resources
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "default_config.json"
-DEFAULT_WORKSPACE_CONFIG_PATH = Path.cwd() / "config" / "default_config.json"
+DEFAULT_CONFIG_PACKAGE = "cheapclaw.config"
+DEFAULT_CONFIG_RESOURCE = "default_config.json"
 
 WORKSPACE_READ_VERBS = (
     "读取",
@@ -66,9 +66,10 @@ WORKSPACE_TARGETS = (
     "/",
     "./",
     "../",
-    "agent_core",
-    "ui",
-    "model_clients",
+    "cheapclaw",
+    "cheapclaw/agent_core",
+    "cheapclaw/ui",
+    "cheapclaw/model_clients",
     "config",
 )
 
@@ -212,11 +213,23 @@ class AppConfig(BaseModel):
 
 
 def load_config(path: str | Path | None = None) -> AppConfig:
-    config_path = Path(path) if path is not None else DEFAULT_WORKSPACE_CONFIG_PATH
-    if not config_path.exists() and path is None:
-        config_path = DEFAULT_CONFIG_PATH
-    if not config_path.exists():
-        return AppConfig()
-    with open(config_path, "r", encoding="utf-8") as file:
-        data = json.load(file)
-    return AppConfig.model_validate(data)
+    if path is not None:
+        config_path = Path(path)
+        if not config_path.exists():
+            return AppConfig()
+        with open(config_path, "r", encoding="utf-8") as file:
+            data = json.load(file)
+        return AppConfig.model_validate(data)
+
+    workspace_config_path = Path.cwd() / "config" / "default_config.json"
+    if workspace_config_path.exists():
+        with open(workspace_config_path, "r", encoding="utf-8") as file:
+            data = json.load(file)
+        return AppConfig.model_validate(data)
+
+    config_text = (
+        resources.files(DEFAULT_CONFIG_PACKAGE)
+        .joinpath(DEFAULT_CONFIG_RESOURCE)
+        .read_text(encoding="utf-8")
+    )
+    return AppConfig.model_validate(json.loads(config_text))

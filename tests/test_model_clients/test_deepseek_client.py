@@ -1,15 +1,15 @@
 import inspect
 
-import run
-from model_clients.deepseek import (
+from cheapclaw import cli
+from cheapclaw.model_clients.deepseek import (
     UPLOAD_BUTTON_SELECTOR,
     DeepSeekAdapter,
     DeepSeekClient,
 )
-from model_clients.deepseek.client import (
+from cheapclaw.model_clients.deepseek.client import (
     DeepSeekAdapter as _DeepSeekAdapter,  # for source inspection
 )
-from model_clients.selector_config import load_selector_config
+from cheapclaw.model_clients.selector_config import load_selector_config
 from tests.mocks import (
     DummyConfig,
     DummyLogger,
@@ -65,7 +65,7 @@ def test_deepseek_client_accepts_cleanup_session_flag():
 def test_login_state_guidance_mentions_export_script_and_path():
     guidance = DeepSeekAdapter().login_state_guidance("config/storage_state_ds.json")
 
-    assert "scripts/export_state.py --model deepseek" in guidance
+    assert "python -m cheapclaw.scripts.export_state --model deepseek" in guidance
     assert "storage_state_ds.json" in guidance
     assert "config/storage_state_ds.json" in guidance
 
@@ -322,5 +322,5 @@ def test_generation_and_completion_fail_closed_sensibly():
     )
 
 
-def test_deepseek_registered_in_run_model_clients():
-    assert run.MODEL_CLIENTS["deepseek"] is DeepSeekClient
+def test_deepseek_registered_in_cli_model_clients():
+    assert cli.MODEL_CLIENTS["deepseek"] is DeepSeekClient

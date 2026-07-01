@@ -1,7 +1,7 @@
 from rich.console import Console
 from rich.panel import Panel
 
-from agent_core import Agent
+from cheapclaw.agent_core import Agent
 
 
 class CLICommandHandler:

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from agent_core.file_transport import PromptTransport
+from cheapclaw.agent_core.file_transport import PromptTransport
 
 
 class FakeClient:

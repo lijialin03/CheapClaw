@@ -1,8 +1,8 @@
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from model_clients.protocols import AgentClient
-from utils.text.markdown import convert_markdown_to_plain_text
+from cheapclaw.model_clients.protocols import AgentClient
+from cheapclaw.utils.text.markdown import convert_markdown_to_plain_text
 
 from .config import AgentConfig
 from .file_transport import PromptTransport

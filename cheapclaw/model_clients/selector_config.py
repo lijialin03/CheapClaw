@@ -59,8 +59,8 @@ class SelectorConfig(BaseModel):
 
 
 def load_selector_config(name: str) -> SelectorConfig:
-    """从 model_clients/<name>/selectors.yaml 加载选择器配置。"""
-    package = f"model_clients.{name}"
+    """从 cheapclaw/model_clients/<name>/selectors.yaml 加载选择器配置。"""
+    package = f"cheapclaw.model_clients.{name}"
     path = (
         Path(str(_resources.files(package))) / "selectors.yaml"  # type: ignore[arg-type]
     )

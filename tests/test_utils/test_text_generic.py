@@ -1,4 +1,4 @@
-from utils.text.generic import truncate_text_fields
+from cheapclaw.utils.text.generic import truncate_text_fields
 
 
 def test_truncate_text_fields_truncates_long_strings_and_records_removed_chars():

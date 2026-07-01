@@ -1,6 +1,6 @@
 import pytest
 
-from agent_core.prompt_loader import (
+from cheapclaw.agent_core.prompt_loader import (
     PLACEHOLDER_PATTERN,
     load_prompt_template,
     render_prompt,

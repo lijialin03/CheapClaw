@@ -1,7 +1,7 @@
 import pytest
 
-from agent_core.config import ToolConfig
-from agent_core.tool_orchestrator import ToolOrchestrator
+from cheapclaw.agent_core.config import ToolConfig
+from cheapclaw.agent_core.tool_orchestrator import ToolOrchestrator
 
 
 class QueueClient:
@@ -133,7 +133,7 @@ def test_router_positive_and_negative_decisions():
 def test_router_fallback_on_errors_and_unknown_text():
     assert (
         make_orchestrator(QueueClient(error=True)).should_use_terminal_tools(
-            "please read agent_core"
+            "please read cheapclaw/agent_core"
         )
         is True
     )
