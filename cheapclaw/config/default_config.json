@@ -51,25 +51,19 @@
         "tools",
         "yes"
       ],
-      "workspace_read_verbs": [
+      "workspace_action_terms": [
         "读取",
         "读",
         "查看",
         "检查",
         "列出",
-        "看看",
         "打开",
-        "分析",
-        "总结",
         "修改",
         "改",
         "写入",
         "替换",
         "创建",
         "保存",
-        "应用",
-        "review",
-        "analyze",
         "read",
         "show",
         "list",
@@ -80,20 +74,23 @@
         "replace",
         "update",
         "create",
-        "save",
-        "apply"
+        "save"
       ],
-      "workspace_targets": [
+      "workspace_resource_nouns": [
         "目录",
         "文件",
         "路径",
         "当前目录",
         "本地文件",
         "本地目录",
-        "workspace",
+        "workspace"
+      ],
+      "workspace_common_file_names": [
         "run.py",
         "index.html",
-        "package.json",
+        "package.json"
+      ],
+      "workspace_file_extensions": [
         ".py",
         ".json",
         ".md",
@@ -105,14 +102,18 @@
         ".tsx",
         ".vue",
         ".yaml",
-        ".yml",
+        ".yml"
+      ],
+      "workspace_path_hints": [
         "/",
         "./",
         "../",
-        "cheapclaw",
         "cheapclaw/agent_core",
         "cheapclaw/ui",
-        "cheapclaw/model_clients",
+        "cheapclaw/model_clients"
+      ],
+      "workspace_project_hints": [
+        "cheapclaw",
         "config"
       ],
       "tool_step_limit_message": "已达到终端命令调用步数上限，无法继续读取更多信息。",

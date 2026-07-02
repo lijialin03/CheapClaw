@@ -117,7 +117,10 @@ class Agent:
         if not self._can_use_tool_orchestration():
             return self._run_legacy_turn(user_input, event_callback)
 
-        assistant_reply = self.tool_orchestrator.run_turn(user_input, event_callback)
+        recent_context = self.memory.get_recent_context()
+        assistant_reply = self.tool_orchestrator.run_turn(
+            user_input, event_callback, recent_context=recent_context
+        )
         if assistant_reply is None or self._is_router_sentinel_reply(assistant_reply):
             return self._run_legacy_turn(user_input, event_callback)
 

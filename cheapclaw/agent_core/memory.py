@@ -323,6 +323,13 @@ class Memory:
         """按当前输入筛选并组装分层记忆文本。"""
         return self._build_context(query=query, budget=budget)
 
+    def get_recent_context(
+        self, max_tokens: int | None = None, budget: int | None = None
+    ) -> str:
+        """只返回近期对话，不包含关键信息、摘要或检索结果。"""
+        resolved_budget = budget or max_tokens or self.config.recent_context_budget
+        return self.buffer.get_context(budget=resolved_budget)
+
     def compress_with_summary(self, summary_model=None) -> bool:
         """手动触发 LLM 摘要压缩。"""
         if summary_model is None:

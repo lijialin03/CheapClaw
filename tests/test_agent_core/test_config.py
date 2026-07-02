@@ -36,8 +36,12 @@ def test_positive_integer_fields_reject_non_positive_values():
         "tool_router_positive_replies",
         "tool_router_negative_replies",
         "router_sentinel_replies",
-        "workspace_read_verbs",
-        "workspace_targets",
+        "workspace_action_terms",
+        "workspace_resource_nouns",
+        "workspace_common_file_names",
+        "workspace_file_extensions",
+        "workspace_path_hints",
+        "workspace_project_hints",
     ],
 )
 def test_tool_config_tuple_fields_reject_empty_strings(field):
@@ -115,22 +119,30 @@ def test_load_config_uses_package_default_when_workspace_config_missing(
 
     config = load_config()
 
-    assert "写入" in config.agent.tools.workspace_read_verbs
-    assert "replace" in config.agent.tools.workspace_read_verbs
-    assert "index.html" in config.agent.tools.workspace_targets
-    assert ".html" in config.agent.tools.workspace_targets
-    assert "cheapclaw/agent_core" in config.agent.tools.workspace_targets
-    assert "agent_core" not in config.agent.tools.workspace_targets
-    assert "当前仓库" not in config.agent.tools.workspace_read_verbs
+    assert "写入" in config.agent.tools.workspace_action_terms
+    assert "replace" in config.agent.tools.workspace_action_terms
+    assert "文件" in config.agent.tools.workspace_resource_nouns
+    assert "index.html" in config.agent.tools.workspace_common_file_names
+    assert ".html" in config.agent.tools.workspace_file_extensions
+    assert "cheapclaw/agent_core" in config.agent.tools.workspace_path_hints
+    assert "cheapclaw" in config.agent.tools.workspace_project_hints
+    assert "config" in config.agent.tools.workspace_project_hints
+    assert "cheapclaw" not in config.agent.tools.workspace_resource_nouns
+    assert "agent_core" not in config.agent.tools.workspace_path_hints
+    assert "当前仓库" not in config.agent.tools.workspace_action_terms
 
 
 def test_default_config_file_contains_high_confidence_workspace_fallback_terms():
     config = load_config()
 
-    assert "写入" in config.agent.tools.workspace_read_verbs
-    assert "replace" in config.agent.tools.workspace_read_verbs
-    assert "index.html" in config.agent.tools.workspace_targets
-    assert ".html" in config.agent.tools.workspace_targets
-    assert "cheapclaw/agent_core" in config.agent.tools.workspace_targets
-    assert "agent_core" not in config.agent.tools.workspace_targets
-    assert "当前仓库" not in config.agent.tools.workspace_read_verbs
+    assert "写入" in config.agent.tools.workspace_action_terms
+    assert "replace" in config.agent.tools.workspace_action_terms
+    assert "文件" in config.agent.tools.workspace_resource_nouns
+    assert "index.html" in config.agent.tools.workspace_common_file_names
+    assert ".html" in config.agent.tools.workspace_file_extensions
+    assert "cheapclaw/agent_core" in config.agent.tools.workspace_path_hints
+    assert "cheapclaw" in config.agent.tools.workspace_project_hints
+    assert "config" in config.agent.tools.workspace_project_hints
+    assert "cheapclaw" not in config.agent.tools.workspace_resource_nouns
+    assert "agent_core" not in config.agent.tools.workspace_path_hints
+    assert "当前仓库" not in config.agent.tools.workspace_action_terms

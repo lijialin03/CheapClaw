@@ -80,6 +80,8 @@ ControlledTerminalRunner  ← 执行层：cwd 维护、子进程运行、checkpo
 
 两步流程：规划器输出 `file replace` 命令 → LLM 生成文件内容 → 计算 diff 并展示预览 → 用户确认 → 原子写入。
 
+对于“请修改”“按刚才方案改”等连续请求，工具系统会尽量沿用上一轮已明确的目标和方案；修改前仍会重新读取目标文件，并在写入前展示 diff 供确认。
+
 **原子写入**：内容先写临时文件，`flush()` + `fsync()` 后再 `rename()` 到目标路径，保证断电安全。
 
 ### Checkpoint 系统
@@ -98,7 +100,7 @@ ControlledTerminalRunner  ← 执行层：cwd 维护、子进程运行、checkpo
 用户输入
   │
   ▼
-Router: LLM 判断是否需要终端工具（fallback: 关键词启发式）
+Router: 判断是否需要终端工具（必要时用工作区信号辅助判断）
   │
   ├─ "对话" → 返回 None，Agent 回退到 Legacy 对话路径
   │
@@ -135,4 +137,4 @@ Agent 级参数：
 | `agent.tool_orchestration_enabled` | 是否启用工具编排 | true |
 | `agent.max_tool_steps` | 单轮最大工具调用步数 | 5 |
 
-完整配置项（含 checkpoint 保留数、确认关键词、diff 预览截断等）见配置文件本身。所有参数均有 Pydantic 校验和默认值。
+如果需要调整哪些表达会被视为工作区相关请求，可参考 `workspace_*` 配置项；普通用户通常无需修改。完整配置项（含 checkpoint 保留数、确认关键词、diff 预览截断等）见配置文件本身。所有参数均有 Pydantic 校验和默认值。

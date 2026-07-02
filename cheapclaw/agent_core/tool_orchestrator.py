@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
@@ -7,6 +8,63 @@ from cheapclaw.utils.text.generated_file import clean_generated_file_content
 from .config import ToolConfig
 from .prompt_loader import render_prompt
 from .tool_commands import ReadonlyToolCommandRunner
+
+
+class WorkspaceSignalDetector:
+    def __init__(self, config: ToolConfig):
+        self.config = config
+        self.rules: tuple[Callable[[str], bool], ...] = (
+            self._has_explicit_file_path,
+            self._has_workspace_action_and_target,
+        )
+
+    def has_signal(self, user_input: str) -> bool:
+        return any(rule(user_input) for rule in self.rules)
+
+    def _has_explicit_file_path(self, user_input: str) -> bool:
+        return bool(self._extract_file_path_like_text(user_input))
+
+    def _has_workspace_action_and_target(self, user_input: str) -> bool:
+        text = user_input.lower()
+        return any(
+            action in text for action in self.config.workspace_action_terms
+        ) and self._has_workspace_resource_target(text)
+
+    def _has_workspace_resource_target(self, text: str) -> bool:
+        return any(
+            checker(text)
+            for checker in (
+                self._has_workspace_resource_noun,
+                self._has_workspace_common_file_name,
+                self._has_workspace_file_extension,
+                self._has_workspace_path_hint,
+                self._has_workspace_project_hint,
+            )
+        )
+
+    def _has_workspace_resource_noun(self, text: str) -> bool:
+        return any(noun in text for noun in self.config.workspace_resource_nouns)
+
+    def _has_workspace_common_file_name(self, text: str) -> bool:
+        return any(name in text for name in self.config.workspace_common_file_names)
+
+    def _has_workspace_file_extension(self, text: str) -> bool:
+        return any(
+            extension in text for extension in self.config.workspace_file_extensions
+        )
+
+    def _has_workspace_path_hint(self, text: str) -> bool:
+        return any(hint in text for hint in self.config.workspace_path_hints)
+
+    def _has_workspace_project_hint(self, text: str) -> bool:
+        return any(hint in text for hint in self.config.workspace_project_hints)
+
+    def _extract_file_path_like_text(self, text: str) -> list[str]:
+        return re.findall(
+            r"(?:^|[\s`'\"：:（(])([A-Za-z0-9_./\-]+\.(?:py|js|ts|tsx|jsx|html|css|json|md|txt|yaml|yml|toml|ini|cfg|vue))",
+            text,
+            flags=re.IGNORECASE,
+        )
 
 
 @dataclass
@@ -18,6 +76,7 @@ class PendingCommandConfirmation:
     used_tool: bool
     explicit_workspace_request: bool
     file_edit_id: str | None = None
+    recent_context: str = ""
     is_pipeline: bool = False
     pipeline_segments: list[list[str]] | None = None
 
@@ -36,19 +95,25 @@ class ToolOrchestrator:
         self.max_tool_steps = max(1, int(max_tool_steps))
         self.emit_event = emit_event
         self.config = config or ToolConfig()
+        self.workspace_signal_detector = WorkspaceSignalDetector(self.config)
         self.pending_command_confirmation: PendingCommandConfirmation | None = None
 
     def has_pending_confirmation(self) -> bool:
         return self.pending_command_confirmation is not None
 
     def run_turn(
-        self, user_input: str, event_callback: Optional[Callable[[dict], None]] = None
+        self,
+        user_input: str,
+        event_callback: Optional[Callable[[dict], None]] = None,
+        recent_context: str = "",
     ) -> Optional[str]:
-        use_terminal_tools = self.should_use_terminal_tools(user_input, event_callback)
+        use_terminal_tools = self.should_use_terminal_tools(
+            user_input, event_callback, recent_context=recent_context
+        )
         if not use_terminal_tools:
             return None
         return self._continue_tool_orchestration(
-            user_input, [], False, use_terminal_tools, event_callback
+            user_input, [], False, use_terminal_tools, event_callback, recent_context
         )
 
     def handle_pending_command_confirmation(
@@ -87,6 +152,7 @@ class ToolOrchestrator:
                 True,
                 pending.explicit_workspace_request,
                 event_callback,
+                pending.recent_context,
             )
             or fallback
         )
@@ -95,30 +161,73 @@ class ToolOrchestrator:
         self,
         user_input: str,
         event_callback: Optional[Callable[[dict], None]] = None,
+        recent_context: str = "",
     ) -> bool:
         self.emit_event(event_callback, {"type": "tool_routing"})
         try:
-            reply = (
-                self.client.send_text(self._build_tool_router_prompt(user_input))
-                .strip()
-                .lower()
+            reply = self._send_tool_router_prompt(user_input, recent_context)
+        except Exception:
+            return self._fallback_should_use_terminal_tools(user_input)
+
+        decision = self._parse_router_reply(reply)
+        if decision is not None:
+            return decision
+
+        try:
+            retry_reply = self._send_tool_router_retry_prompt(
+                user_input, recent_context, reply
             )
         except Exception:
-            return self._looks_like_workspace_read_request(user_input)
-        if reply in self.config.tool_router_positive_replies:
-            return True
-        if reply in self.config.tool_router_negative_replies:
-            return False
-        return self._looks_like_workspace_read_request(user_input)
+            return self._fallback_should_use_terminal_tools(user_input)
 
-    def _build_tool_router_prompt(self, user_input: str) -> str:
-        return render_prompt("tool_router.md", user_input=user_input)
+        retry_decision = self._parse_router_reply(retry_reply)
+        if retry_decision is not None:
+            return retry_decision
+        return self._fallback_should_use_terminal_tools(user_input)
 
-    def _looks_like_workspace_read_request(self, user_input: str) -> bool:
-        text = user_input.lower()
-        return any(verb in text for verb in self.config.workspace_read_verbs) and any(
-            target in text for target in self.config.workspace_targets
+    def _send_tool_router_prompt(
+        self, user_input: str, recent_context: str = ""
+    ) -> str:
+        return self.client.send_text(
+            self._build_tool_router_prompt(user_input, recent_context)
         )
+
+    def _send_tool_router_retry_prompt(
+        self, user_input: str, recent_context: str, invalid_reply: str
+    ) -> str:
+        return self.client.send_text(
+            self._build_tool_router_retry_prompt(
+                user_input, recent_context, invalid_reply
+            )
+        )
+
+    def _parse_router_reply(self, reply: str) -> bool | None:
+        normalized = reply.strip().lower()
+        if normalized in self.config.tool_router_positive_replies:
+            return True
+        if normalized in self.config.tool_router_negative_replies:
+            return False
+        return None
+
+    def _build_tool_router_prompt(
+        self, user_input: str, recent_context: str = ""
+    ) -> str:
+        return render_prompt(
+            "tool_router.md", user_input=user_input, recent_context=recent_context
+        )
+
+    def _build_tool_router_retry_prompt(
+        self, user_input: str, recent_context: str, invalid_reply: str
+    ) -> str:
+        return render_prompt(
+            "tool_router_retry.md",
+            user_input=user_input,
+            recent_context=recent_context,
+            invalid_reply=invalid_reply,
+        )
+
+    def _fallback_should_use_terminal_tools(self, user_input: str) -> bool:
+        return self.workspace_signal_detector.has_signal(user_input)
 
     def _continue_tool_orchestration(
         self,
@@ -127,10 +236,13 @@ class ToolOrchestrator:
         used_tool: bool,
         explicit_workspace_request: bool,
         event_callback: Optional[Callable[[dict], None]] = None,
+        recent_context: str = "",
     ) -> Optional[str]:
         for _ in range(self.max_tool_steps):
             self.emit_event(event_callback, {"type": "tool_planning"})
-            prompt = self._build_tool_planner_prompt(user_input, observations)
+            prompt = self._build_tool_planner_prompt(
+                user_input, observations, recent_context=recent_context
+            )
             reply = self.client.send_text(prompt)
             try:
                 action = self.tool_runner.validate_action(
@@ -161,6 +273,7 @@ class ToolOrchestrator:
                     used_tool,
                     explicit_workspace_request,
                     event_callback,
+                    recent_context,
                 )
 
             if action.get("requires_confirmation"):
@@ -171,6 +284,7 @@ class ToolOrchestrator:
                     user_input=user_input,
                     used_tool=used_tool,
                     explicit_workspace_request=explicit_workspace_request,
+                    recent_context=recent_context,
                     is_pipeline=action.get("is_pipeline", False),
                     pipeline_segments=action.get("pipeline_segments"),
                 )
@@ -181,10 +295,16 @@ class ToolOrchestrator:
             observations.append(self._execute_action(action, event_callback))
             used_tool = True
 
-        return self._force_final_answer(user_input, observations, event_callback)
+        return self._force_final_answer(
+            user_input, observations, event_callback, recent_context
+        )
 
     def _build_tool_planner_prompt(
-        self, user_input: str, observations: list[dict], force_final: bool = False
+        self,
+        user_input: str,
+        observations: list[dict],
+        force_final: bool = False,
+        recent_context: str = "",
     ) -> str:
         observations_json = json.dumps(observations, ensure_ascii=False, indent=2)
         force_final_rule = (
@@ -197,6 +317,7 @@ class ToolOrchestrator:
         return render_prompt(
             "tool_planner.md",
             user_input=user_input,
+            recent_context=recent_context,
             examples=examples,
             policy=policy,
             force_final_rule=force_final_rule,
@@ -215,10 +336,11 @@ class ToolOrchestrator:
         used_tool: bool,
         explicit_workspace_request: bool,
         event_callback: Optional[Callable[[dict], None]] = None,
+        recent_context: str = "",
     ) -> str:
         self.emit_event(event_callback, {"type": "file_edit_drafting"})
         content_prompt = self._build_file_content_prompt(
-            user_input, action["argv"][2], observations
+            user_input, action["argv"][2], observations, recent_context
         )
         content = self._strip_file_content(self.client.send_text(content_prompt))
         prepared = self.tool_runner.prepare_file_replace(action["command"], content)
@@ -230,6 +352,7 @@ class ToolOrchestrator:
             used_tool=used_tool,
             explicit_workspace_request=explicit_workspace_request,
             file_edit_id=prepared["edit_id"],
+            recent_context=recent_context,
         )
         diff_preview = (
             prepared["diff"][: self.config.file_edit_diff_preview_chars]
@@ -247,12 +370,17 @@ class ToolOrchestrator:
         return f"请回复 {confirm_reply} 执行，或回复 {self.config.cancel_command_reply} 取消。"
 
     def _build_file_content_prompt(
-        self, user_input: str, path: str, observations: list[dict]
+        self,
+        user_input: str,
+        path: str,
+        observations: list[dict],
+        recent_context: str = "",
     ) -> str:
         observations_json = json.dumps(observations, ensure_ascii=False, indent=2)
         return render_prompt(
             "file_replace.md",
             user_input=user_input,
+            recent_context=recent_context,
             path=path,
             observations_json=observations_json,
         )
@@ -265,10 +393,11 @@ class ToolOrchestrator:
         user_input: str,
         observations: list[dict],
         event_callback: Optional[Callable[[dict], None]] = None,
+        recent_context: str = "",
     ) -> str:
         self.emit_event(event_callback, {"type": "tool_planning"})
         prompt = self._build_tool_planner_prompt(
-            user_input, observations, force_final=True
+            user_input, observations, force_final=True, recent_context=recent_context
         )
         reply = self.client.send_text(prompt)
         try:

@@ -130,6 +130,17 @@ def test_router_positive_and_negative_decisions():
     assert events == [{"type": "tool_routing"}]
 
 
+def test_router_prompt_receives_recent_context_and_model_is_authoritative():
+    client = QueueClient(["terminal"])
+    orchestrator = make_orchestrator(client)
+
+    assert orchestrator.should_use_terminal_tools(
+        "请修改", recent_context="AI: 方案是修改 index.html"
+    )
+
+    assert "AI: 方案是修改 index.html" in client.prompts[0]
+
+
 def test_router_fallback_on_errors_and_unknown_text():
     assert (
         make_orchestrator(QueueClient(error=True)).should_use_terminal_tools(
@@ -138,14 +149,41 @@ def test_router_fallback_on_errors_and_unknown_text():
         is True
     )
     assert (
-        make_orchestrator(QueueClient(["maybe"])).should_use_terminal_tools("hello")
+        make_orchestrator(QueueClient(["maybe", "chat"])).should_use_terminal_tools(
+            "hello"
+        )
         is False
     )
     assert (
-        make_orchestrator(QueueClient(["maybe"])).should_use_terminal_tools(
+        make_orchestrator(QueueClient(["maybe", "chat"])).should_use_terminal_tools(
             "show run.py"
         )
-        is True
+        is False
+    )
+
+
+def test_router_retries_unknown_model_reply_before_hard_signal_fallback():
+    recent_context = "用户: index.html 夜间模式为什么没生效？\nAI: 缺少 JavaScript"
+    client = QueueClient(["maybe", "terminal"])
+    orchestrator = make_orchestrator(client)
+
+    assert orchestrator.should_use_terminal_tools(
+        "请修改", recent_context=recent_context
+    )
+
+    assert len(client.prompts) == 2
+    assert "上次非法输出开始" in client.prompts[1]
+    assert "maybe" in client.prompts[1]
+
+
+def test_hard_signal_fallback_does_not_infer_followups_from_recent_context():
+    recent_context = "用户: index.html 夜间模式为什么没生效？\nAI: 缺少 JavaScript"
+
+    assert not make_orchestrator(QueueClient(error=True)).should_use_terminal_tools(
+        "请修改", recent_context=recent_context
+    )
+    assert make_orchestrator(QueueClient(error=True)).should_use_terminal_tools(
+        "请修改 index.html", recent_context=""
     )
 
 
@@ -259,12 +297,16 @@ def test_file_replace_generates_clean_content_truncated_preview_confirm_and_canc
     )
     orchestrator = make_orchestrator(client, runner=runner, config=config)
 
-    prompt = orchestrator.run_turn("replace a.py")
+    prompt = orchestrator.run_turn(
+        "replace a.py", recent_context="AI: 修改 a.py 中的输出"
+    )
 
     assert "准备修改文件 `a.py`" in prompt
     assert "D" * 10 in prompt
     assert "D" * 11 not in prompt
     assert runner.prepared[0]["content"] == "print('x')"
+    assert "AI: 修改 a.py 中的输出" in client.prompts[1]
+    assert "AI: 修改 a.py 中的输出" in client.prompts[2]
     assert orchestrator.has_pending_confirmation()
 
     answer = orchestrator.handle_pending_command_confirmation("yes")

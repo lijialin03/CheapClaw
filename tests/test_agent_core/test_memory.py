@@ -73,6 +73,25 @@ def test_memory_compressor_and_key_info_store():
     assert store.to_dict() == snapshot
 
 
+def test_memory_recent_context_only_uses_buffer():
+    memory = Memory(config=MemoryConfig(recent_context_budget=200))
+    memory.set_key_info("target", "index.html should use dark mode")
+    memory.compressor.summaries.append(
+        {"content": "historical summary about package.json", "timestamp": 1}
+    )
+    memory.add_user_message("index.html 夜间模式为什么没生效？")
+    memory.add_assistant_message("缺少切换脚本，请修改时需要更新 index.html")
+
+    recent = memory.get_recent_context()
+
+    assert "index.html 夜间模式" in recent
+    assert "缺少切换脚本" in recent
+    assert "【关键信息】" not in recent
+    assert "【相关历史摘要】" not in recent
+    assert "dark mode" not in recent
+    assert "package.json" not in recent
+
+
 def test_memory_selects_relevant_context_and_skips_generic_queries(tmp_path):
     memory = Memory(
         key_info_path=tmp_path / "key_info.yaml",

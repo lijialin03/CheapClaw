@@ -11,7 +11,8 @@ from cheapclaw.agent_core.prompt_loader import (
     "name, marker",
     [
         ("chat.md", "{{ memory_section }}"),
-        ("tool_router.md", "{{ user_input }}"),
+        ("tool_router.md", "{{ recent_context }}"),
+        ("tool_router_retry.md", "{{ invalid_reply }}"),
         ("tool_planner.md", "{{ observations_json }}"),
         ("memory_summary.md", "{{ text }}"),
         ("file_replace.md", "{{ path }}"),
@@ -51,11 +52,16 @@ def test_render_prompt_missing_variables_raise_key_error():
     "name, expected_placeholders",
     [
         ("chat.md", {"memory_section", "user_input"}),
-        ("tool_router.md", {"user_input"}),
+        ("tool_router.md", {"user_input", "recent_context"}),
+        (
+            "tool_router_retry.md",
+            {"user_input", "recent_context", "invalid_reply"},
+        ),
         (
             "tool_planner.md",
             {
                 "user_input",
+                "recent_context",
                 "examples",
                 "policy",
                 "force_final_rule",
@@ -63,7 +69,10 @@ def test_render_prompt_missing_variables_raise_key_error():
             },
         ),
         ("memory_summary.md", {"text"}),
-        ("file_replace.md", {"user_input", "path", "observations_json"}),
+        (
+            "file_replace.md",
+            {"user_input", "recent_context", "path", "observations_json"},
+        ),
         ("file_transport.md", set()),
     ],
 )
@@ -93,8 +102,17 @@ def test_tool_planner_prompt_requires_current_read_before_file_replace():
     assert "当前工具编排" in template
     assert "用 cat 读取目标文件" in template
     assert "不要直接 file replace" in template
-    assert "不能继承历史文件内容" in template
+    assert "近期上下文不能替代当前文件观察" in template
     assert "file replace <path>" in template
+
+
+def test_file_replace_prompt_requires_localized_changes():
+    template = load_prompt_template("file_replace.md")
+
+    assert "近期对话上下文" in template
+    assert "不能把近期上下文当成当前文件内容" in template
+    assert "只修改用户要求相关的部分" in template
+    assert "不要删除与请求无关" in template
 
 
 def test_chat_prompt_does_not_deny_local_file_capability():

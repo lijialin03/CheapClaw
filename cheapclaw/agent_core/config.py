@@ -7,25 +7,19 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 DEFAULT_CONFIG_PACKAGE = "cheapclaw.config"
 DEFAULT_CONFIG_RESOURCE = "default_config.json"
 
-WORKSPACE_READ_VERBS = (
+WORKSPACE_ACTION_TERMS = (
     "读取",
     "读",
     "查看",
     "检查",
     "列出",
-    "看看",
     "打开",
-    "分析",
-    "总结",
     "修改",
     "改",
     "写入",
     "替换",
     "创建",
     "保存",
-    "应用",
-    "review",
-    "analyze",
     "read",
     "show",
     "list",
@@ -37,10 +31,9 @@ WORKSPACE_READ_VERBS = (
     "update",
     "create",
     "save",
-    "apply",
 )
 
-WORKSPACE_TARGETS = (
+WORKSPACE_RESOURCE_NOUNS = (
     "目录",
     "文件",
     "路径",
@@ -48,9 +41,15 @@ WORKSPACE_TARGETS = (
     "本地文件",
     "本地目录",
     "workspace",
+)
+
+WORKSPACE_COMMON_FILE_NAMES = (
     "run.py",
     "index.html",
     "package.json",
+)
+
+WORKSPACE_FILE_EXTENSIONS = (
     ".py",
     ".json",
     ".md",
@@ -63,13 +62,19 @@ WORKSPACE_TARGETS = (
     ".vue",
     ".yaml",
     ".yml",
+)
+
+WORKSPACE_PATH_HINTS = (
     "/",
     "./",
     "../",
-    "cheapclaw",
     "cheapclaw/agent_core",
     "cheapclaw/ui",
     "cheapclaw/model_clients",
+)
+
+WORKSPACE_PROJECT_HINTS = (
+    "cheapclaw",
     "config",
 )
 
@@ -116,8 +121,12 @@ class ToolConfig(BaseModel):
         "tools",
         "yes",
     )
-    workspace_read_verbs: tuple[str, ...] = WORKSPACE_READ_VERBS
-    workspace_targets: tuple[str, ...] = WORKSPACE_TARGETS
+    workspace_action_terms: tuple[str, ...] = WORKSPACE_ACTION_TERMS
+    workspace_resource_nouns: tuple[str, ...] = WORKSPACE_RESOURCE_NOUNS
+    workspace_common_file_names: tuple[str, ...] = WORKSPACE_COMMON_FILE_NAMES
+    workspace_file_extensions: tuple[str, ...] = WORKSPACE_FILE_EXTENSIONS
+    workspace_path_hints: tuple[str, ...] = WORKSPACE_PATH_HINTS
+    workspace_project_hints: tuple[str, ...] = WORKSPACE_PROJECT_HINTS
     tool_step_limit_message: str = "已达到终端命令调用步数上限，无法继续读取更多信息。"
     file_edit_diff_preview_chars: int = Field(default=3000, gt=0)
 
@@ -129,8 +138,12 @@ class ToolConfig(BaseModel):
         "tool_router_positive_replies",
         "tool_router_negative_replies",
         "router_sentinel_replies",
-        "workspace_read_verbs",
-        "workspace_targets",
+        "workspace_action_terms",
+        "workspace_resource_nouns",
+        "workspace_common_file_names",
+        "workspace_file_extensions",
+        "workspace_path_hints",
+        "workspace_project_hints",
     )
     @classmethod
     def validate_non_empty_tuple_items(cls, value: tuple[str, ...]) -> tuple[str, ...]:

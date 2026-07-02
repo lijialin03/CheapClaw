@@ -67,6 +67,7 @@ class FakeClient:
 class FakeMemory:
     def __init__(self):
         self.context_queries = []
+        self.recent_context_calls = 0
         self.user_messages = []
         self.assistant_messages = []
         self.saved = 0
@@ -80,6 +81,10 @@ class FakeMemory:
     def get_context(self, query=""):
         self.context_queries.append(query)
         return "memory context" if query == "with memory" else ""
+
+    def get_recent_context(self):
+        self.recent_context_calls += 1
+        return "recent context"
 
     def set_event_callback(self, callback):
         self.callbacks.append(callback)
@@ -142,8 +147,8 @@ class FakeOrchestrator:
         self.pending = False
         return self.replies.pop(0) if self.replies else "pending handled"
 
-    def run_turn(self, user_input, event_callback=None):
-        self.turns.append((user_input, event_callback))
+    def run_turn(self, user_input, event_callback=None, recent_context=""):
+        self.turns.append((user_input, event_callback, recent_context))
         return self.replies.pop(0) if self.replies else "tool answer"
 
 
@@ -314,6 +319,19 @@ def test_non_sentinel_tool_answer_stored_without_qwen():
     assert agent.run_turn("show files") == "tool final"
     assert memory.user_messages == ["show files"]
     assert memory.assistant_messages == ["tool final"]
+
+
+def test_tool_orchestrator_receives_recent_context():
+    memory = FakeMemory()
+    agent = make_agent(FakeClient(), memory, workspace=object())
+    orchestrator = FakeOrchestrator(["tool final"])
+    agent.tool_orchestration_enabled = True
+    agent.tool_orchestrator = orchestrator
+
+    assert agent.run_turn("请修改") == "tool final"
+
+    assert memory.recent_context_calls == 1
+    assert orchestrator.turns == [("请修改", None, "recent context")]
 
 
 def test_agent_delegation_methods():
